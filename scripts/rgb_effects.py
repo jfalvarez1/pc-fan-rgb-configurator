@@ -723,6 +723,23 @@ EFFECT_GROUPS = {
 VU_BARS = 8
 VU_PEAKS = True          # draw the falling peak marker on top of each bar
 
+# Real audio, when it is available. audio_levels taps the speaker's WASAPI
+# loopback and FFTs it into logarithmic bands. If capture is unavailable the
+# meters fall back to synthesised motion - and the UI says which is in use,
+# because a meter that bounces to nothing is worse than no meter.
+try:
+    from audio_levels import SHARED as AUDIO
+except Exception:
+    AUDIO = None
+
+
+def audio_ready():
+    return bool(AUDIO and AUDIO.available)
+
+
+def audio_active():
+    return bool(AUDIO and AUDIO.active)
+
 
 def _vu_level(bar, bars, t):
     a = 0.55 + 0.45 * math.sin(t * (1.3 + bar * 0.37) + bar * 2.1)
@@ -732,15 +749,27 @@ def _vu_level(bar, bars, t):
     return max(0.05, min(1.0, lvl))
 
 
+def _levels(n, t):
+    """Real band levels if we have them, synthesised motion otherwise."""
+    if AUDIO is not None:
+        lv = AUDIO.levels(n)
+        if lv:
+            return lv
+    return [_vu_level(b, n, t) for b in range(n)]
+
+
 def fx_vu(nx, ny, t, palette, bars=None):
-    """Classic VU meter: bars rising from the bottom, green -> amber -> red."""
+    """Classic VU meter: bars rising from the bottom, green -> amber -> red.
+
+    Driven by real loopback audio when available.
+    """
     n = max(2, int(bars or VU_BARS))
     bar = min(n - 1, int(nx * n))
-    lvl = _vu_level(bar, n, t)
+    lvl = _levels(n, t)[bar]
     height = 1.0 - ny                      # 0 at the bottom, 1 at the top
 
     if VU_PEAKS:
-        peak = max(lvl, _vu_level(bar, n, t - 0.35) * 0.96)
+        peak = max(lvl, lvl * 0.96)
         if abs(height - peak) < 0.055 and peak > 0.08:
             return (255, 255, 255)
 
@@ -762,7 +791,7 @@ def fx_vu_palette(nx, ny, t, palette, bars=None):
     """Same meter, but coloured from the active palette instead of green-red."""
     n = max(2, int(bars or VU_BARS))
     bar = min(n - 1, int(nx * n))
-    lvl = _vu_level(bar, n, t)
+    lvl = _levels(n, t)[bar]
     height = 1.0 - ny
     if height > lvl:
         return (0, 0, 0)

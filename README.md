@@ -463,9 +463,15 @@ falling peak markers) and `vu pal` (same shape, palette-coloured). Bar count
 is user-tweakable at runtime from the panel - the slider writes
 `rgb_effects.VU_BARS`.
 
-There is no audio capture, so levels are synthesised: each bar has its own
-bounce rate plus a shared beat. It reads like music without pretending to be
-reactive.
+`audio_levels.py` taps the default speaker's WASAPI loopback (via
+`soundcard`), FFTs it, and buckets into LOGARITHMIC bands - pitch is
+logarithmic, so linear bins would cram nearly every musical note into the
+first two bars. Attack is fast, release slow, so bars fall like a real meter.
+
+If capture is unavailable the meters fall back to synthesised motion, and the
+panel says which is in use: "live audio", "live audio (silent)", or
+"SIMULATED (no audio capture)". A meter that bounces to nothing is worse than
+no meter, so it is never left ambiguous.
 
 ## Autostart
 

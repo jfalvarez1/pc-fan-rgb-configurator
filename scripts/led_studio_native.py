@@ -461,7 +461,16 @@ class App:
     def set_bars(self, _v=None):
         n = int(self.bars.get())
         fx.VU_BARS = n
-        note = "" if (self.effect or "").startswith("vu") else "  (vu effects)"
+        if (self.effect or "").startswith("vu"):
+            if fx.AUDIO is not None:
+                fx.AUDIO.start()
+            if fx.audio_ready():
+                note = "  · live audio" + ("" if fx.audio_active()
+                                                 else " (silent)")
+            else:
+                note = "  · SIMULATED (no audio capture)"
+        else:
+            note = "  (vu effects)"
         self.bars_lbl.config(text=f"VU bars: {n}{note}")
 
     # ---------- palettes
@@ -745,6 +754,8 @@ class App:
                 for r in self.leds:
                     self.set_led(r, fn(r["nx"], r["ny"], t, pal))
                 self.frames += 1
+                if self.frames % 30 == 0 and (self.effect or "").startswith("vu"):
+                    self.set_bars()
                 if self.frames % 30 == 0:
                     self.say(f"{self.effect}: {self.frames} frames, t={t:.1f}s"
                              + ("  (driving hardware)" if self.controlling

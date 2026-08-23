@@ -723,6 +723,30 @@ EFFECT_GROUPS = {
 VU_BARS = 8
 VU_PEAKS = True          # draw the falling peak marker on top of each bar
 
+# A meter is a stack of discrete segments, not a continuous fill. That matters
+# here: the lowest LED row sits at height ~0.04 in effect space, so a
+# continuous "lit if height <= level" test lights it for ANY level above 4% -
+# which is why the bottom fans and the bottom keyboard row never went out.
+# Quantising into VU_ROWS segments means the bottom row needs a level of
+# 1/VU_ROWS before it lights, so it modulates like every other row.
+VU_ROWS = 10
+VU_LO = 0.10             # level the BOTTOM row must clear (stops the fill)
+VU_HI = 0.95             # level the TOP row must clear (kept reachable)
+
+# With continuous audio a bottom segment is legitimately lit most of the time -
+# that is how a real meter behaves, and no threshold makes it blink without
+# also making the meter twitchy. So a lit segment is also DIMMED by the current
+# level: the bottom fans and the bottom keyboard row breathe with the music
+# instead of sitting at a constant green.
+VU_DIM = 0.22            # brightness of a lit segment at the lowest level
+VU_GAIN = 1.0            # user sensitivity; also pushed into the capture
+VU_PEAK_FALL = 0.55      # peak marker fall, in bar-heights per second
+
+# Effect space is inset by 4% at each end (see case_layout.led_positions), so
+# raw height runs 0.04..0.96 rather than 0..1. Undo that before quantising, or
+# the top row could never reach full and the bottom could never reach zero.
+_FX_LO, _FX_SPAN = 0.04, 0.92
+
 # Real audio, when it is available. audio_levels taps the speaker's WASAPI
 # loopback and FFTs it into logarithmic bands. If capture is unavailable the
 # meters fall back to synthesised motion - and the UI says which is in use,
@@ -749,13 +773,83 @@ def _vu_level(bar, bars, t):
     return max(0.05, min(1.0, lvl))
 
 
-def _levels(n, t):
-    """Real band levels if we have them, synthesised motion otherwise."""
+# One frame's worth of levels, computed once and reused for every LED in that
+# frame. fx_vu is called per LED - 207 times a frame here - and recomputing the
+# band fold each time was both wasteful and made a real peak-hold impossible,
+# since there was no single point at which a frame advanced.
+_FRAME = {"t": None, "n": None, "lv": None, "peak": []}
+
+
+def _frame(n, t):
+    """(levels, peaks) for this frame, computing at most once per frame."""
+    f = _FRAME
+    if f["t"] == t and f["n"] == n and f["lv"] is not None:
+        return f["lv"], f["peak"]
+
+    lv = None
     if AUDIO is not None:
-        lv = AUDIO.levels(n)
-        if lv:
-            return lv
-    return [_vu_level(b, n, t) for b in range(n)]
+        got = AUDIO.levels(n)
+        if got:
+            lv = got                      # capture applies VU_GAIN itself
+    if lv is None:
+        # synthesised fallback: apply gain here, or it would be ignored
+        lv = [_vu_level(b, n, t) for b in range(n)]
+        if VU_GAIN != 1.0:
+            lv = [max(0.0, min(1.0, v * VU_GAIN)) for v in lv]
+
+    # falling peak hold, decaying in real time rather than per frame
+    prev_t, peak = f["t"], f["peak"]
+    if len(peak) != n or prev_t is None or t < prev_t:
+        peak = list(lv)
+    else:
+        drop = VU_PEAK_FALL * max(0.0, t - prev_t)
+        peak = [max(lv[i], peak[i] - drop) for i in range(n)]
+
+    f.update(t=t, n=n, lv=lv, peak=peak)
+    return lv, peak
+
+
+def _cell(nx, ny, n):
+    """(bar index, row index, row height 0..1) for an LED in effect space."""
+    bar = min(n - 1, max(0, int(nx * n)))
+    h = (1.0 - ny - _FX_LO) / _FX_SPAN          # undo the effect-space inset
+    h = max(0.0, min(1.0, h))
+    row = min(VU_ROWS - 1, int(h * VU_ROWS))
+    return bar, row, (row + 0.5) / VU_ROWS
+
+
+def _row_threshold(row):
+    """Level a segment must clear to light.
+
+    Spread across VU_LO..VU_HI rather than the textbook (row+1)/VU_ROWS: that
+    formula makes the bottom row need 1/VU_ROWS (good, it is what stops the
+    permanent fill) but the TOP row need exactly 1.0, which real audio
+    essentially never reaches, so the top segment would never light.
+    """
+    if VU_ROWS < 2:
+        return VU_LO
+    return VU_LO + (VU_HI - VU_LO) * (row / (VU_ROWS - 1))
+
+
+def _lit(lvl, row):
+    return lvl >= _row_threshold(row)
+
+
+def _dim(col, lvl):
+    """Scale a lit segment by the current level, so every row - the bottom
+    ones included - keeps moving even while it stays lit."""
+    b = VU_DIM + (1.0 - VU_DIM) * max(0.0, min(1.0, lvl))
+    return (int(col[0] * b), int(col[1] * b), int(col[2] * b))
+
+
+def _top_row(lvl):
+    """Highest row this level lights, or -1 if it clears none."""
+    if lvl < VU_LO:
+        return -1
+    if VU_ROWS < 2 or VU_HI <= VU_LO:
+        return 0
+    r = int((lvl - VU_LO) * (VU_ROWS - 1) / (VU_HI - VU_LO))
+    return min(VU_ROWS - 1, r)
 
 
 def fx_vu(nx, ny, t, palette, bars=None):
@@ -764,38 +858,51 @@ def fx_vu(nx, ny, t, palette, bars=None):
     Driven by real loopback audio when available.
     """
     n = max(2, int(bars or VU_BARS))
-    bar = min(n - 1, int(nx * n))
-    lvl = _levels(n, t)[bar]
-    height = 1.0 - ny                      # 0 at the bottom, 1 at the top
+    lv, peaks = _frame(n, t)
+    bar, row, height = _cell(nx, ny, n)
+    lvl = lv[bar]
 
-    if VU_PEAKS:
-        peak = max(lvl, lvl * 0.96)
-        if abs(height - peak) < 0.055 and peak > 0.08:
-            return (255, 255, 255)
+    if VU_PEAKS and not _lit(lvl, row) and _top_row(peaks[bar]) == row:
+        return (255, 255, 255)      # falling peak marker, above the bar
 
-    if height > lvl:
+    if not _lit(lvl, row):
         return (0, 0, 0)
     # colour by HEIGHT, the way a real meter is scaled
     if height < 0.55:
         g = 255
         r = int(255 * (height / 0.55) * 0.55)
-        return (r, g, 30)
-    if height < 0.80:
+        col = (r, g, 30)
+    elif height < 0.80:
         f2 = (height - 0.55) / 0.25
-        return (int(180 + 75 * f2), int(255 - 90 * f2), 0)
-    f2 = (height - 0.80) / 0.20
-    return (255, int(165 - 165 * f2), 0)
+        col = (int(180 + 75 * f2), int(255 - 90 * f2), 0)
+    else:
+        f2 = (height - 0.80) / 0.20
+        col = (255, int(165 - 165 * f2), 0)
+    return _dim(col, lvl)
 
 
 def fx_vu_palette(nx, ny, t, palette, bars=None):
     """Same meter, but coloured from the active palette instead of green-red."""
     n = max(2, int(bars or VU_BARS))
-    bar = min(n - 1, int(nx * n))
-    lvl = _levels(n, t)[bar]
-    height = 1.0 - ny
-    if height > lvl:
+    lv, _ = _frame(n, t)
+    bar, row, height = _cell(nx, ny, n)
+    if not _lit(lv[bar], row):
         return (0, 0, 0)
-    return gamma(cyclic_gradient(palette, height * 0.8 + bar / n * 0.2))
+    col = gamma(cyclic_gradient(palette, height * 0.8 + bar / n * 0.2))
+    return _dim(col, lv[bar])
+
+
+def set_vu_gain(g):
+    """Sensitivity, roughly 0.3 (calm) .. 3.0 (hot). Applied to the capture
+    when it is running, and to the synthesised fallback either way."""
+    global VU_GAIN
+    VU_GAIN = max(0.1, min(4.0, float(g)))
+    if AUDIO is not None:
+        try:
+            AUDIO.set_gain(VU_GAIN)
+        except Exception:
+            pass
+    return VU_GAIN
 
 
 SPATIAL.update({"vu": fx_vu, "vu pal": fx_vu_palette})

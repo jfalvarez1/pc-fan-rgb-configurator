@@ -450,6 +450,18 @@ class App:
                  bd=0, sliderrelief="flat", activebackground=ACCENT,
                  font=FONT_L, showvalue=False, command=self.set_bars
                  ).pack(fill="x", padx=14)
+        # VU sensitivity. Content loudness varies far too much for one fixed
+        # setting - a game sits near the top of the range where a quiet track
+        # barely leaves the bottom - so this is the escape hatch.
+        self.gain_lbl = tk.Label(p, text="VU sensitivity: 1.0x", bg=PANEL,
+                                 fg=MUTED, font=FONT_L, anchor="w")
+        self.gain_lbl.pack(fill="x", padx=16, pady=(8, 0))
+        self.gain = tk.IntVar(value=int(getattr(fx, "VU_GAIN", 1.0) * 10))
+        tk.Scale(p, from_=3, to=30, orient="horizontal", variable=self.gain,
+                 bg=PANEL, fg=INK, troughcolor=BTN, highlightthickness=0,
+                 bd=0, sliderrelief="flat", activebackground=ACCENT,
+                 font=FONT_L, showvalue=False, command=self.set_gain
+                 ).pack(fill="x", padx=14)
 
         r = row()
         mkbtn(r, "Stop", self.stop_fx).pack(side="left", expand=True,
@@ -472,6 +484,10 @@ class App:
         else:
             note = "  (vu effects)"
         self.bars_lbl.config(text=f"VU bars: {n}{note}")
+
+    def set_gain(self, _v=None):
+        g = fx.set_vu_gain(self.gain.get() / 10.0)
+        self.gain_lbl.config(text=f"VU sensitivity: {g:.1f}x")
 
     # ---------- palettes
 
@@ -697,6 +713,7 @@ class App:
         self.palette_name = self.palettes.get(name, self.palette_name)
         self.draw_palette()
         self.set_bars()
+        self.set_gain()
         self.t0 = time.monotonic()
         self.frames = 0
         self.say(f"animating: {name}")

@@ -473,6 +473,48 @@ panel says which is in use: "live audio", "live audio (silent)", or
 "SIMULATED (no audio capture)". A meter that bounces to nothing is worse than
 no meter, so it is never left ambiguous.
 
+### Why the bottom rows used to stay lit
+
+The bottom fans and the bottom keyboard row were permanently filled whenever
+audio played. Four separate causes, each found by measurement:
+
+1. **The FFT was never normalised.** `np.fft.rfft` scales with block size, so
+   magnitudes read ~1000x high and every band sat far above the dB floor.
+   Dividing by `window.sum()/2` makes a bin read as a real amplitude, so the
+   dB constants in `audio_levels.py` are now genuine dBFS.
+2. **Some bands had no FFT bins at all.** At 2048 samples the bin spacing is
+   23.4 Hz, and the 46-53 Hz log band was empty - a permanent 0.00 rather than
+   a quiet band. Now 4096 samples plus a nearest-bin fallback.
+3. **A fixed dB floor cannot work.** Steady content - a game, a dense mix -
+   parks every band near the top and the lower rows never go out. Each band is
+   now normalised into its own rolling min/max over `WINDOW_SEC`, so it reads
+   1.0 when loudest in the last few seconds and 0.0 when quietest. A first
+   attempt used a slowly-rising baseline instead; at 0.0008 per block its time
+   constant was ~100 s, so across a 15 s capture it never moved and the bottom
+   row was dark 0% of the time.
+4. **A continuous fill lights the bottom row at any level.** The lowest LED
+   row sits at height ~0.04 in effect space, so "lit if height <= level" lights
+   it for anything above 4%. The meter is now quantised into `VU_ROWS`
+   segments with thresholds spread across `VU_LO`..`VU_HI`, so the bottom row
+   needs a real level and the top row stays reachable.
+
+With genuinely continuous audio a bottom segment is still legitimately lit
+most of the time - that is what a real meter does, and no threshold makes it
+blink without also making the meter twitchy. So a lit segment is additionally
+dimmed by the current level (`VU_DIM`): measured over live audio the bottom
+row now swings between 0.25 and 0.79 brightness instead of sitting at a
+constant full green, and the case and keyboard track each other exactly.
+
+Tunables in `rgb_effects.py`: `VU_ROWS`, `VU_LO`, `VU_HI`, `VU_DIM`,
+`VU_PEAK_FALL`, `VU_GAIN` (the panel's **VU sensitivity** slider, 0.3x-3.0x,
+since a game sits near the top of the range where a quiet track barely leaves
+the bottom). In `audio_levels.py`: `WINDOW_SEC`, `GATE`, `EXPO`, `MIN_RANGE`,
+`SMOOTH_UP`/`SMOOTH_DN`.
+
+`fx_vu` is called once per LED - 207 times a frame - so band levels are
+computed once per frame and cached, which also makes a real falling peak-hold
+possible. Measured: 207 level fetches per frame down to 1.
+
 ## Autostart
 
 | Component | Mechanism |

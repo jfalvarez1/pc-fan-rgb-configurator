@@ -25,6 +25,7 @@ import urllib.request
 
 import case_layout
 import nzxt_util
+import openrgb_boot
 import rgb_effects
 
 # ---------------------------------------------------------------- CONFIG ---
@@ -450,6 +451,9 @@ class RGBOutput:
 
     def connect(self):
         self.next_retry = time.monotonic() + self.RECONNECT_COOLDOWN
+        # if OpenRGB was closed, bring it back rather than sitting dark
+        if not openrgb_boot.sdk_up():
+            openrgb_boot.ensure_running(wait=15.0, quiet=True)
         try:
             from openrgb import OpenRGBClient
             client = OpenRGBClient(OPENRGB_HOST, OPENRGB_PORT, "thermal-loop")

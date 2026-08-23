@@ -12,6 +12,7 @@ import pathlib
 import time
 
 import case_layout
+import openrgb_boot
 import rgb_effects as fx
 
 BASE = pathlib.Path(__file__).resolve().parent
@@ -46,6 +47,7 @@ def main():
         print("effects:", ", ".join(sorted(fx.SPATIAL)))
         return 0
 
+    openrgb_boot.ensure_running()
     from openrgb import OpenRGBClient
     from openrgb.utils import RGBColor
     client = OpenRGBClient("127.0.0.1", 6742, "effect-demo")

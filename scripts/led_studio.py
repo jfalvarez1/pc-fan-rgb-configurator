@@ -15,6 +15,8 @@ vertically mounted GPU.
 """
 import json
 import pathlib
+
+import openrgb_boot
 import threading
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -106,6 +108,10 @@ class Hardware:
         self.connect()
 
     def connect(self):
+        # OpenRGB must be alive for anything here to work, and it must be
+        # elevated for the motherboard headers. Start it if it is not running
+        # rather than making the user remember.
+        openrgb_boot.ensure_running()
         try:
             from openrgb import OpenRGBClient
             self.client = OpenRGBClient(HOST, RGB_PORT, "led-studio")
@@ -187,7 +193,10 @@ class Hardware:
                     dev.set_colors([RGBColor(*c) for c in self.buf[dev_id]],
                                    fast=False)
                 except Exception as exc:
-                    errs.append(f"{dev.name}: {exc}")
+                    # repr, not str: several openrgb/socket exceptions have an
+                    # empty message and reported as "DeviceName: " with nothing
+                    errs.append(f"{dev.name}: {type(exc).__name__}: {exc!r}")
+                    self.client = None      # force a reconnect next apply
         return {"ok": not errs, "error": "; ".join(errs) if errs else None,
                 "devices": len(touched)}
 
@@ -263,6 +272,10 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    if not openrgb_boot.sdk_up():
+        print("OpenRGB is not running - starting it...")
+        openrgb_boot.ensure_running()
+        HW.connect()
     srv = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     url = f"http://localhost:{PORT}"
     print(f"LED Studio on {url}")

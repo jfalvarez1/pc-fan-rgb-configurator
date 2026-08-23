@@ -326,6 +326,25 @@ Preview them live:
     python effect_demo.py --effect plasma
     python effect_demo.py --list
 
+## OpenRGB is started automatically
+
+OpenRGB must be running for ANY lighting to work, and must be ELEVATED or it
+loses PawnIO/SMBus - which means no motherboard ARGB headers, so no cooler
+lighting and no GPU logo.
+
+Nothing requires launching it by hand. `openrgb_boot.ensure_running()` is
+called by led_studio, effect_demo and the daemon; it triggers the
+`HardwareControl-OpenRGB` scheduled task and waits for port 6742.
+
+Triggering a task you own needs NO elevation and raises no UAC prompt, while
+the task itself runs with highest privileges - so an unelevated tool can
+start an elevated OpenRGB. Verified with `schtasks /Run` returning rc 0 from
+a non-admin shell.
+
+Gotcha: run schtasks from PYTHON, not from Git Bash. MSYS path conversion
+rewrites `/Run` into `C:/Program Files/Git/Run`. subprocess.run([...]) execs
+directly and is unaffected.
+
 ## Autostart
 
 | Component | Mechanism |

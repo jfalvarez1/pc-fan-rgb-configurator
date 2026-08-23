@@ -1,0 +1,15 @@
+{
+  "ASUS PRIME B650-PLUS WIFI|Aura Addressable 2": "GPU ZOTAC Gaming logo (24)",
+  "ASUS PRIME B650-PLUS WIFI|Aura Addressable 1": "Arctic LF III Pro 360 A-RGB: 48 LEDs = pump 12 + 3 rad fans x12. CHAIN ORDER IS RIGHT-TO-LEFT: idx 12-23 = rightmost fan, 24-35 = middle, 36-47 = leftmost",
+  "ASUS PRIME B650-PLUS WIFI|Aura Addressable 3": "empty",
+  "NZXT RGB & Fan Controller|Hue 2 Channel 1": "front F360 RGB Core - 3x120mm, 8 LEDs each = 24",
+  "ZOTAC GAMING GeForce RTX 5090 SOLID OC|Logo": "PHANTOM - controls nothing visible",
+  "NZXT RGB & Fan Controller|Hue 2 Channel 2": "bottom F420 RGB Core - 3x140mm, 8 LEDs each = 24",
+  "NZXT RGB & Fan Controller|Hue 2 Channel 3": "rear F RGB Core single fan - 8 LEDs",
+  "NZXT RGB & Fan Controller|Hue 2 Channel 4": "EMPTY - free for the CPU cooler",
+  "NZXT RGB & Fan Controller|Hue 2 Channel 5": "EMPTY - free",
+  "NZXT RGB & Fan Controller|Hue 2 Channel 6": "EMPTY - free",
+  "ZOTAC GAMING GeForce RTX 5090 SOLID OC|ZOTAC Gaming": "PHANTOM - GPU lighting runs via mobo header 2",
+  "ASUS PRIME B650-PLUS WIFI|Aura Mainboard": "4-pin 12V Aura RGB header - EMPTY, lights nothing",
+  "Corsair Vengeance RGB DDR5|Corsair DRAM": "RGB RAM - TWO sticks share this exact name; address by device id (0 and 1), never by name"
+}

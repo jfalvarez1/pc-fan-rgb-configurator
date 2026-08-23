@@ -1,0 +1,12 @@
+pump duty -> rpm map (Fan #2)
+abort floor: 1500 rpm    target: ~2300 rpm
+
+   80% duty  ->     2795 rpm  (99% of max)
+   72% duty  ->     2733 rpm  (97% of max)
+   64% duty  ->     2398 rpm  (85% of max)
+   56% duty  ->     2163 rpm  (76% of max)
+   48% duty  ->     1971 rpm  (70% of max)
+   40% duty  ->     1772 rpm  (63% of max)
+
+CHOSEN: 64% duty (lowest duty still at or above 2300 rpm)
+pump now at 64% = 2328 rpm

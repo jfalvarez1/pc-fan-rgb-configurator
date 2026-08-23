@@ -1,0 +1,28 @@
+# runtime state - regenerated on every launch
+sensors.json
+manual_override.flag
+claude_thinking.flag
+claude_flags/
+__pycache__/
+*.pyc
+
+# logs
+*.log
+scripts/*.log
+
+# bundled third-party binaries (download them yourself, see README)
+FanControl/
+OpenRGB/
+_downloads/
+
+# machine-specific measurements are KEPT in data/ deliberately - they are the
+# evidence behind the curve tuning. Only the noisy rolling log is ignored.
+scripts/thermal_log.csv
+scripts/thermal_log_old.csv
+
+# session output lives in data/ ; scripts/ copies are runtime artefacts
+scripts/bench_*.csv
+scripts/lhm_report.txt
+scripts/mobo_fan_report.txt
+scripts/probe_one.txt
+scripts/pump_map.txt

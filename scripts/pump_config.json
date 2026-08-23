@@ -1,0 +1,30 @@
+{
+  "pump_duty": 56.0,
+  "map": [
+    {
+      "duty": 80,
+      "rpm": 2795.031005859375
+    },
+    {
+      "duty": 72,
+      "rpm": 2732.79345703125
+    },
+    {
+      "duty": 64,
+      "rpm": 2397.86865234375
+    },
+    {
+      "duty": 56,
+      "rpm": 2163.46142578125
+    },
+    {
+      "duty": 48,
+      "rpm": 1970.802978515625
+    },
+    {
+      "duty": 40,
+      "rpm": 1771.653564453125
+    }
+  ],
+  "rationale": "56% = 2163 rpm = 76% of the 2830 max. Inside the 60-80%-of-max guidance band, well clear of cavitation territory, and far below the saturation zone where 72-100% duty all produce ~2750+ rpm for no benefit. Change pump_duty to 64.0 for 2398 rpm (85%) if CPU temps under sustained load look high."
+}

@@ -365,8 +365,61 @@ def fx_wave_down(nx, ny, t, palette):
     return _dir_wave(nx, ny, t, palette, 0.0, -1.0)
 
 
-def fx_matrix(nx, ny, t, palette, speed=0.5, cols=9.0, tail=0.34):
-    """Digital rain: green columns falling, each with a white-hot head."""
+# Matrix rain on a real grid. Tuned against the 15x5 keyboard by measuring
+# what the look actually depends on: mean vertical run (is it a strand?), how
+# many columns are lit at once (is it sparse?), and how long a strand takes to
+# cross (is it frantic?). At tail 0.45 and 0.60 the 3.0-row floor dominated
+# and both gave identical output, which is what showed the floor was doing the
+# work rather than the parameter.
+MATRIX_TAIL = 1.0            # tail length, as a multiple of the grid height
+MATRIX_GAP = 1.4             # dark gap between strands, ditto
+MATRIX_ROWS_PER_SEC = 6.0    # descent rate at speed=1.0
+
+
+def _matrix_cell(cell, t, speed):
+    """Digital rain snapped to a real matrix.
+
+    The spatial version below divides the surface into 9 fixed columns and
+    gives the tail a length measured as a FRACTION OF HEIGHT. On the keyboard
+    that is 1.7 keys wide and, across only 5 rows, about 2 rows tall - so it
+    filled large chunks instead of reading as a strand. Here the strand is
+    exactly one column wide and the tail is measured in ROWS, which is what
+    makes it look like the familiar falling glyph column.
+
+    The cell comes from the LED's index on the grid, not from rounding its
+    position, so it is exact by construction - and it stays exact inside an
+    effect layer, where the box's local coordinates would not line up with
+    key boundaries at all.
+    """
+    col, row, gc, gr = cell
+    tail = max(3.0, gr * MATRIX_TAIL)
+    period = gr + tail + gr * MATRIX_GAP
+    rate = 0.6 + _hash(col, 2.3) * 0.9
+    # Fall speed is in ROWS PER SECOND. Scaling a 0..1 phase by the period
+    # instead would couple the two: widening the dark gap between strands
+    # would also make them fall faster, which is not what a gap means.
+    head = ((t * speed * MATRIX_ROWS_PER_SEC * rate)
+            + _hash(col, 7.7) * period) % period
+    d = head - row                      # rows behind the head
+    if d < 0.0 or d >= tail:
+        return (0, 0, 0)
+    if d < 1.0:                         # the leading glyph
+        return (200, 255, 210)
+    f = 1.0 - (d - 1.0) / (tail - 1.0)
+    g = int(255 * f ** 1.6)
+    return (int(g * 0.15), g, int(g * 0.30))
+
+
+def fx_matrix(nx, ny, t, palette, speed=0.5, cols=9.0, tail=0.34, cell=None):
+    """Digital rain: green columns falling, each with a white-hot head.
+
+    On a surface that is a real matrix (the keyboard) the strand snaps to the
+    physical grid - one key wide, advancing a row at a time. Ring layouts have
+    no rows or columns, so they keep the smooth spatial version; quantising a
+    fan ring to an invented grid would only alias.
+    """
+    if cell:
+        return _matrix_cell(cell, t, speed)
     col = math.floor(nx * cols)
     rate = 0.6 + _hash(col, 2.3) * 0.9
     head = _wrap(t * speed * rate + _hash(col, 7.7))
@@ -554,6 +607,11 @@ PALETTES = {
 # Effects that are intrinsically coloured (matrix green, fire, lightning)
 # ignore the palette by design - noted here rather than hidden.
 IGNORES_PALETTE = {"matrix", "fire", "lightning"}
+
+# Effects that render better when told the LED's physical grid cell. The
+# renderer passes cell=(col, row, cols, rows) for LEDs on a matrix element and
+# omits it everywhere else, so ring layouts are untouched.
+CELL_AWARE = {"matrix"}
 
 
 # ===========================================================================

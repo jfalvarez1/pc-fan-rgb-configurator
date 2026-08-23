@@ -452,6 +452,39 @@ though the title bar and Start Menu showed ours. Fixed by calling
 SetCurrentProcessExplicitAppUserModelID("HardwareControl.LEDStudio") BEFORE
 any window is created.
 
+## Matrix rain snaps to a real grid
+
+On the keyboard the rain filled large chunks instead of falling as the famous
+vertical strand. Two causes, both from treating a 15x5 matrix as a smooth
+surface:
+
+- the effect divided the surface into **9 fixed columns**, so a strand was
+  1.7 keys wide;
+- the tail was a **fraction of height**, and across only 5 rows that is about
+  2 rows - so the lit shape was wider than it was tall.
+
+An LED on a grid element now carries its exact cell, taken from its INDEX on
+the wire (`col = i % cols`, `row = i // cols`) rather than by rounding its
+position - exact by construction, and still exact inside an effect layer whose
+local coordinates do not line up with key boundaries. `CELL_AWARE` lists the
+effects that want it; ring layouts get `None` and keep the smooth spatial
+version, because quantising a fan ring to an invented grid would only alias.
+
+Tuned by measuring what the look actually depends on - mean vertical run,
+columns lit at once, and time to cross:
+
+| | vertical run | horizontal run | columns lit | reads as |
+|---|---|---|---|---|
+| before | 1.29 cells | 1.88 cells | 90% | blob (wider than tall) |
+| after | 2.42 cells | 1.28 cells | 46% | strand |
+
+Two things the measurements caught. At `tail` 0.45 and 0.60 the output was
+byte-identical, because a 3.0-row floor was doing the work rather than the
+parameter. And scaling a 0..1 phase by the period coupled gap to speed -
+widening the dark gap between strands also made them fall faster, which is not
+what a gap means. Descent is now in rows per second (`MATRIX_ROWS_PER_SEC`),
+verified constant at 1.6 s to cross across every gap setting.
+
 ## Effect layers
 
 `fx_layers.py` - a movable, resizable, rotatable box that applies its effect

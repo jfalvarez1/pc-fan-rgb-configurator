@@ -160,3 +160,37 @@ def led_positions():
         ny = 0.04 + 0.92 * (y - y0) / h
         out.append((el, i, nx, ny))
     return out
+
+
+def group_grids():
+    """(cols, rows) per fx_group, for groups that ARE a physical matrix.
+
+    The keyboard is a real 15x5 grid, so an effect can snap a strand to one
+    key wide and advance it a row at a time. Ring layouts have no rows or
+    columns at all, so they get None and effects keep their spatial
+    behaviour - quantising a fan ring to a made-up grid would only alias.
+    """
+    els = {}
+    for el in LAYOUT:
+        els.setdefault(el.get("fx_group", "case"), []).append(el)
+    out = {}
+    for g, lst in els.items():
+        if len(lst) == 1 and lst[0].get("kind") == "grid":
+            out[g] = (int(lst[0].get("cols", 1)), int(lst[0].get("rows", 1)))
+        else:
+            out[g] = None
+    return out
+
+
+def cell_of(el, i):
+    """(col, row, cols, rows) for an LED on a matrix element, else None.
+
+    Taken from the LED's INDEX on the wire, so it is exact - no rounding of
+    normalised coordinates, and it stays correct inside an effect layer whose
+    local coordinates do not line up with key boundaries.
+    """
+    if el.get("kind") != "grid":
+        return None
+    cols = int(el.get("cols", 1))
+    rows = int(el.get("rows", 1))
+    return (i % cols, i // cols, cols, rows)

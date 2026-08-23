@@ -370,7 +370,8 @@ class App:
                 if i in el.get("blanks", ()):
                     self.leds.append({"el": el, "i": i, "x": x, "y": y,
                                       "nx": nx, "ny": ny, "rgb": (0, 0, 0),
-                                      "manual": (0, 0, 0), "item": None})
+                                      "manual": (0, 0, 0), "item": None,
+                                      "cell": case_layout.cell_of(el, i)})
                     continue
                 h = el.get("cell", 27) / 2 - 2
                 item = c.create_rectangle(x - h, y - h, x + h, y + h,
@@ -382,7 +383,8 @@ class App:
                                      fill=LED_OFF, outline=LED_OFF_EDGE,
                                      width=1)
             rec = {"el": el, "i": i, "x": x, "y": y, "nx": nx, "ny": ny,
-                   "rgb": (0, 0, 0), "manual": (0, 0, 0), "item": item}
+                   "rgb": (0, 0, 0), "manual": (0, 0, 0), "item": item,
+                   "cell": case_layout.cell_of(el, i)}
             self.leds.append(rec)
             self.byel.setdefault(el["id"], []).append(rec)
 
@@ -1194,12 +1196,18 @@ class App:
                 t = (time.monotonic() - self.t0) * self.speed.get()
                 pal = self.active_palette()
                 fn = fx.SPATIAL[self.effect] if self.effect else None
+                # resolved once per frame, not per LED
+                base_cells = self.effect in fx.CELL_AWARE
                 # Base pass. With no global effect the manually painted
                 # colour is the background, so layers composite over painting
                 # instead of erasing it.
                 for r in self.leds:
-                    r["c"] = (fn(r["nx"], r["ny"], t, pal) if fn
-                              else r.get("manual", (0, 0, 0)))
+                    if fn is None:
+                        r["c"] = r.get("manual", (0, 0, 0))
+                    elif base_cells and r["cell"]:
+                        r["c"] = fn(r["nx"], r["ny"], t, pal, cell=r["cell"])
+                    else:
+                        r["c"] = fn(r["nx"], r["ny"], t, pal)
                 # Layers, in order: later ones paint over earlier ones. Only
                 # the LEDs a box covers are touched, using the box's own local
                 # coordinates so the effect spans the box wherever it sits.
@@ -1207,9 +1215,13 @@ class App:
                     lfn = fx.SPATIAL[lay.effect]
                     lpal = self.palette_for(lay.palette, pal)
                     lt = t * lay.speed
+                    cells = lay.effect in fx.CELL_AWARE
                     for r in lay.members:
                         u, v = lay.local(r["x"], r["y"])
-                        r["c"] = lay.apply(r["c"], lfn(u, v, lt, lpal))
+                        col = (lfn(u, v, lt, lpal, cell=r["cell"])
+                               if cells and r["cell"]
+                               else lfn(u, v, lt, lpal))
+                        r["c"] = lay.apply(r["c"], col)
                 for r in self.leds:
                     self.set_led(r, r["c"])
                 self.frames += 1

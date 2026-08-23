@@ -30,3 +30,5 @@ scripts/fan_state.json
 
 # abandoned C experiment - see README on why the rewrite was not pursued
 native/
+icon_preview.png
+_retired/

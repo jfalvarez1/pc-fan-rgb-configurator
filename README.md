@@ -382,6 +382,22 @@ Gotcha: run schtasks from PYTHON, not from Git Bash. MSYS path conversion
 rewrites `/Run` into `C:/Program Files/Git/Run`. subprocess.run([...]) execs
 directly and is unaffected.
 
+## Icon
+
+`scripts/make_icon.py` generates `led_studio.ico` (16-256 px): a ring of lit
+LEDs around a dark fan hub, in the app's own synthwave palette. It echoes what
+the app actually draws rather than imitating anyone's branding.
+
+Two things it took iterations to get right, both visible in the code comments:
+
+  * the first halo stacked five wide translucent layers and the alpha summed to
+    near-white - the whole icon washed out
+  * even tightened, adjacent LEDs' halos overlapped and summed, so the pink
+    LEDs rendered white. Fixed by drawing the halo in a DIMMED (55%) version of
+    the colour, keeping the LED itself the brightest thing
+
+Regenerate with `python scripts/make_icon.py`.
+
 ## Autostart
 
 | Component | Mechanism |

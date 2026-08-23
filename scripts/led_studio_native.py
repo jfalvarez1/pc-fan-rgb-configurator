@@ -168,6 +168,10 @@ class App:
         self.root = root
         root.title("LED Studio")
         root.configure(bg="#0d0f14")
+        try:
+            root.iconbitmap(str(BASE.parent / "led_studio.ico"))
+        except Exception:
+            pass    # icon is cosmetic; never let it stop the app starting
 
         self.out = queue.Queue()
         self.hw = Hardware(self.out)

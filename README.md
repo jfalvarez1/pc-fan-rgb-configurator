@@ -443,6 +443,30 @@ though the title bar and Start Menu showed ours. Fixed by calling
 SetCurrentProcessExplicitAppUserModelID("HardwareControl.LEDStudio") BEFORE
 any window is created.
 
+## Effect space is normalised PER GROUP
+
+The keyboard sits below the case on screen. If effect coordinates came from
+one shared bounding box, every key would land in the bottom tenth of the
+space - a vertical wave or a "stack" would treat the whole keyboard as one
+bottom row.
+
+`led_positions()` normalises each `fx_group` separately, so the case and the
+keyboard each span the full 0..1 range. Verified: the topmost radiator LED and
+the top keyboard row are both ny=0.040; the lowest bottom-fan LED and the
+bottom key row are both ny=0.960. Effects therefore run side by side across
+both surfaces rather than treating the keyboard as a footnote.
+
+## VU meter
+
+`vu` (classic green/amber/red, scaled by height like a real meter, with
+falling peak markers) and `vu pal` (same shape, palette-coloured). Bar count
+is user-tweakable at runtime from the panel - the slider writes
+`rgb_effects.VU_BARS`.
+
+There is no audio capture, so levels are synthesised: each bar has its own
+bounce rate plus a shared beat. It reads like music without pretending to be
+reactive.
+
 ## Autostart
 
 | Component | Mechanism |

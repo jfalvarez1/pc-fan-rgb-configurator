@@ -712,3 +712,63 @@ EFFECT_GROUPS = {
     "Scatter": ["rain", "twinkle", "confetti", "juggle", "strobe", "lightning"],
     "Glow":    ["breathe", "pulse", "split", "spectrum", "fire"],
 }
+
+
+# ---------------------------------------------------------------------------
+# VU meter. Bar count is tweakable at runtime - the UI writes VU_BARS.
+# There is no audio capture here, so levels are synthesised: each bar gets its
+# own bounce rate plus a shared "beat", which reads like music without
+# pretending to be reactive.
+# ---------------------------------------------------------------------------
+VU_BARS = 8
+VU_PEAKS = True          # draw the falling peak marker on top of each bar
+
+
+def _vu_level(bar, bars, t):
+    a = 0.55 + 0.45 * math.sin(t * (1.3 + bar * 0.37) + bar * 2.1)
+    b = 0.30 * math.sin(t * 4.1 + bar)
+    beat = 0.25 * max(0.0, math.sin(t * 3.0))          # shared pulse
+    lvl = 0.30 + 0.55 * a + b * 0.25 + beat
+    return max(0.05, min(1.0, lvl))
+
+
+def fx_vu(nx, ny, t, palette, bars=None):
+    """Classic VU meter: bars rising from the bottom, green -> amber -> red."""
+    n = max(2, int(bars or VU_BARS))
+    bar = min(n - 1, int(nx * n))
+    lvl = _vu_level(bar, n, t)
+    height = 1.0 - ny                      # 0 at the bottom, 1 at the top
+
+    if VU_PEAKS:
+        peak = max(lvl, _vu_level(bar, n, t - 0.35) * 0.96)
+        if abs(height - peak) < 0.055 and peak > 0.08:
+            return (255, 255, 255)
+
+    if height > lvl:
+        return (0, 0, 0)
+    # colour by HEIGHT, the way a real meter is scaled
+    if height < 0.55:
+        g = 255
+        r = int(255 * (height / 0.55) * 0.55)
+        return (r, g, 30)
+    if height < 0.80:
+        f2 = (height - 0.55) / 0.25
+        return (int(180 + 75 * f2), int(255 - 90 * f2), 0)
+    f2 = (height - 0.80) / 0.20
+    return (255, int(165 - 165 * f2), 0)
+
+
+def fx_vu_palette(nx, ny, t, palette, bars=None):
+    """Same meter, but coloured from the active palette instead of green-red."""
+    n = max(2, int(bars or VU_BARS))
+    bar = min(n - 1, int(nx * n))
+    lvl = _vu_level(bar, n, t)
+    height = 1.0 - ny
+    if height > lvl:
+        return (0, 0, 0)
+    return gamma(cyclic_gradient(palette, height * 0.8 + bar / n * 0.2))
+
+
+SPATIAL.update({"vu": fx_vu, "vu pal": fx_vu_palette})
+EFFECT_GROUPS["Fill"] = ["concentric", "fill", "stack", "wipe", "bounce",
+                         "starburst", "vu", "vu pal"]

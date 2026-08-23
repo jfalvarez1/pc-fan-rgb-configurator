@@ -290,14 +290,14 @@ class App:
 
     def _build_case(self):
         c = self.cv
-        c.create_rectangle(30, 30, W - 30, H - 30, outline=LINE, width=2)
-        c.create_line(262, 30, 262, H - 30, fill="#212736", dash=(6, 6))
+        c.create_rectangle(30, 30, W - 30, 940, outline=LINE, width=2)
+        c.create_line(262, 30, 262, 940, fill="#212736", dash=(6, 6))
         c.create_rectangle(345, 560, 808, 650, outline=LINE, fill=CARD)
         c.create_text(372, 636, text="RTX 5090", fill=MUTED, font=FONT_L,
                       anchor="w")
         c.create_text(594, 52, text="TOP - radiator exhaust",
                       fill="#5c6577", font=FONT_L)
-        c.create_text(552, H - 52, text="BOTTOM - F420 intake",
+        c.create_text(552, 912, text="BOTTOM - F420 intake",
                       fill="#5c6577", font=FONT_L)
         c.create_text(W - 52, 435, text="SIDE - F360 intake",
                       fill="#5c6577", font=FONT_L, angle=90)
@@ -306,9 +306,24 @@ class App:
 
         for el, i, nx, ny in case_layout.led_positions():
             x, y = case_layout._ring_xy(el, i)
-            r = 8.5 if el["count"] <= 12 else 7.0
-            item = c.create_oval(x - r, y - r, x + r, y + r,
-                                 fill=LED_OFF, outline=LED_OFF_EDGE, width=1)
+            if el.get("kind") == "grid":
+                # A gap in the matrix: absent in plastic, but REAL ON THE WIRE.
+                # It still needs a slot in the colour list or every later key
+                # shifts and the tail indices are never written at all.
+                if i in el.get("blanks", ()):
+                    self.leds.append({"el": el, "i": i, "x": x, "y": y,
+                                      "nx": nx, "ny": ny, "rgb": (0, 0, 0),
+                                      "item": None})
+                    continue
+                h = el.get("cell", 27) / 2 - 2
+                item = c.create_rectangle(x - h, y - h, x + h, y + h,
+                                          fill=LED_OFF, outline=LED_OFF_EDGE,
+                                          width=1)
+            else:
+                r = 8.5 if el["count"] <= 12 else 7.0
+                item = c.create_oval(x - r, y - r, x + r, y + r,
+                                     fill=LED_OFF, outline=LED_OFF_EDGE,
+                                     width=1)
             rec = {"el": el, "i": i, "x": x, "y": y, "nx": nx, "ny": ny,
                    "rgb": (0, 0, 0), "item": item}
             self.leds.append(rec)
@@ -322,6 +337,9 @@ class App:
                 lx, ly = el["x"], el["y"] + el["count"] * 10.5 + 26
             elif kind == "strip_h":
                 lx, ly = el["x"], el["y"] - 28
+            elif kind == "grid":
+                lx = el["x"]
+                ly = el["y"] + el.get("rows", 5) * el.get("cell", 27) / 2 + 22
             else:
                 lx, ly = el["x"], el["y"] + (el.get("r") or 30) + 26
             c.create_text(lx, ly, text=el["label"], fill=MUTED, font=FONT_L)
@@ -341,7 +359,7 @@ class App:
         tk.Label(p, text="LED STUDIO", bg=PANEL, fg=INK,
                  font=("Segoe UI Semibold", 15), anchor="w"
                  ).pack(fill="x", padx=16, pady=(16, 0))
-        tk.Label(p, text=f"132 LEDs · 15 runs · {len(fx.SPATIAL)} effects", bg=PANEL, fg=MUTED,
+        tk.Label(p, text=f"207 LEDs · 16 runs · {len(fx.SPATIAL)} effects", bg=PANEL, fg=MUTED,
                  font=FONT_L, anchor="w").pack(fill="x", padx=16)
 
         head("HARDWARE")
@@ -417,12 +435,29 @@ class App:
                  highlightthickness=0, bd=0, sliderrelief="flat",
                  activebackground=ACCENT, font=FONT_L
                  ).pack(fill="x", padx=14)
+        # VU bar count - only meaningful for the meter effects, so it says so
+        self.bars_lbl = tk.Label(p, text="VU bars: 8", bg=PANEL, fg=MUTED,
+                                 font=FONT_L, anchor="w")
+        self.bars_lbl.pack(fill="x", padx=16, pady=(8, 0))
+        self.bars = tk.IntVar(value=getattr(fx, "VU_BARS", 8))
+        tk.Scale(p, from_=2, to=20, orient="horizontal", variable=self.bars,
+                 bg=PANEL, fg=INK, troughcolor=BTN, highlightthickness=0,
+                 bd=0, sliderrelief="flat", activebackground=ACCENT,
+                 font=FONT_L, showvalue=False, command=self.set_bars
+                 ).pack(fill="x", padx=14)
+
         r = row()
         mkbtn(r, "Stop", self.stop_fx).pack(side="left", expand=True,
                                             fill="x", padx=2)
         mkbtn(r, "All OFF", self.all_off, "ghost").pack(side="left",
                                                         expand=True,
                                                         fill="x", padx=2)
+
+    def set_bars(self, _v=None):
+        n = int(self.bars.get())
+        fx.VU_BARS = n
+        note = "" if (self.effect or "").startswith("vu") else "  (vu effects)"
+        self.bars_lbl.config(text=f"VU bars: {n}{note}")
 
     # ---------- palettes
 
@@ -503,6 +538,8 @@ class App:
     def hit(self, x, y, rad=9):
         best, bd = None, rad * rad
         for r in self.leds:
+            if r["item"] is None:
+                continue
             d = (r["x"] - x) ** 2 + (r["y"] - y) ** 2
             if d < bd:
                 best, bd = r, d
@@ -517,6 +554,8 @@ class App:
 
     def refresh_sel(self):
         for r in self.leds:
+            if r["item"] is None:
+                continue
             key = (r["el"]["id"], r["i"])
             on = key in self.sel
             self.cv.itemconfig(r["item"],
@@ -613,6 +652,8 @@ class App:
 
     def set_led(self, r, rgb):
         r["rgb"] = tuple(max(0, min(255, int(v))) for v in rgb)
+        if r["item"] is None:
+            return                      # matrix gap: addressed, never drawn
         dark = sum(r["rgb"]) < 24
         self.cv.itemconfig(r["item"],
                            fill=LED_OFF if dark else "#%02x%02x%02x" % r["rgb"])
@@ -641,6 +682,7 @@ class App:
         self.effect = name
         self.palette_name = self.palettes.get(name, self.palette_name)
         self.draw_palette()
+        self.set_bars()
         self.t0 = time.monotonic()
         self.frames = 0
         self.say(f"animating: {name}")
@@ -678,6 +720,15 @@ class App:
         frame = {}
         for r in self.leds:
             frame.setdefault(r["el"]["id"], []).append(r["rgb"])
+        # Guard the failure that produced a stuck white key: a short list
+        # silently shifts every LED after a gap and leaves the tail unwritten.
+        for el in case_layout.LAYOUT:
+            got = len(frame.get(el["id"], ()))
+            if got and got != el["count"]:
+                self.say(f"frame length mismatch on {el['label']}: "
+                         f"{got} != {el['count']}")
+                frame[el["id"]] = (list(frame[el["id"]])
+                                   + [(0, 0, 0)] * el["count"])[:el["count"]]
         self.hw.post(frame)
 
     def tick(self):

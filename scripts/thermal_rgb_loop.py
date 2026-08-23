@@ -184,10 +184,12 @@ CLAUDE_GLOW_SPEED = 0.85
 CLAUDE_FLAG_TIMEOUT = 600.0
 
 # Which device TYPES take part in the effects.
-#   KEYBOARD is excluded - Razer Synapse autostarts and fights OpenRGB for it.
+#   KEYBOARD is INCLUDED on request. Caveat: Razer Synapse autostarts and will
+#   fight OpenRGB for the keyboard - whichever wrote last wins. If the keyboard
+#   flickers or reverts, that is Synapse, not this code.
 #   DRAM was added after a rescan revealed two Corsair Vengeance DDR5 sticks
 #   that had never been driven.
-RGB_DEVICE_TYPES = {"GPU", "MOTHERBOARD", "LEDSTRIP", "DRAM"}
+RGB_DEVICE_TYPES = {"GPU", "MOTHERBOARD", "LEDSTRIP", "DRAM", "KEYBOARD"}
 
 # Devices whose zones control nothing physical. Verified one zone at a time:
 # lighting either GPU zone produced no visible change, because this card's

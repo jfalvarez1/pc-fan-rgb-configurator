@@ -435,6 +435,15 @@ Buttons are flat tk.Labels with hover and an accent active state. Tk's default
 3D relief looks like Windows XP. Active state is used to SHOW state: the
 running effect, Take control, Drive hardware and Brush all light up.
 
+### The panel scrolls
+
+Twice a new section pushed the controls off the bottom, and both times the fix
+was to size the window to the content - which only holds until the content
+grows again, or the screen is smaller than the panel. The panel is now a
+Canvas with a scrollbar and a mousewheel binding. Measured after adding the
+layers section: content 1460 px against 1324 px visible, so it would have
+clipped a third time.
+
 ### Taskbar icon
 
 Windows groups taskbar buttons by AppUserModelID. A script launched through
@@ -442,6 +451,49 @@ pythonw.exe inherits PYTHON'S id, so the taskbar showed the Python icon even
 though the title bar and Start Menu showed ours. Fixed by calling
 SetCurrentProcessExplicitAppUserModelID("HardwareControl.LEDStudio") BEFORE
 any window is created.
+
+## Effect layers
+
+`fx_layers.py` - a movable, resizable, rotatable box that applies its effect
+only to the LEDs it covers, the way SignalRGB's effect blocks work. Toggle
+**Layer mode** in the panel; the canvas then edits boxes instead of LEDs.
+
+| action | result |
+|---|---|
+| drag inside a box | move it |
+| drag a corner | resize, opposite corner pinned |
+| drag the handle above the top edge | rotate |
+| arrows / shift-arrows | nudge 1 px / 10 px |
+| Delete | remove the selected box |
+
+While a layer is selected the effect buttons and the palette control set
+THAT layer's effect and palette rather than the global one - selecting a layer
+is the explicit act that redirects them. Layers stack: later ones paint over
+earlier ones (Raise/Lower reorders), each with its own opacity and a blend
+mode of normal, add or max. With no global effect running, the manually
+painted colours act as the background, so layers composite over painting
+instead of erasing it.
+
+The effect is evaluated in the box's OWN local space - an LED at the box's
+top-left reads (0,0) and one at its bottom-right reads (1,1) - so a wave runs
+across the box regardless of where the box sits or how far it is turned.
+
+Geometry lives in `fx_layers.py` with no Tk, so it is directly testable:
+`python fx_layers.py` runs 68 checks. Two of them earned their keep.
+
+- **Anchored resize.** Deriving the new centre from the DRAGGED corner's sign
+  only agrees with the pinned corner while the drag stays on one side of it;
+  past that the box jumped. The box is now defined by the two opposite points
+  (pinned corner and cursor) with the centre as their midpoint, which is what
+  keeps the anchor exactly still.
+- **The flip assertion was wrong twice.** When a drag crosses the anchor the
+  anchor point stays put but becomes a different corner INDEX, so asserting
+  `corners()[2]` is unchanged fails on correct code. The invariant is that the
+  anchor is still *one of* the corners.
+
+Covered LEDs are cached per layer and recomputed only when the box moves, so
+the render loop touches just those LEDs. Measured: baseline 1.17 ms/frame,
+four full-coverage layers 2.61 ms/frame, against a 33 ms budget - 8%.
 
 ## Effect space is normalised PER GROUP
 

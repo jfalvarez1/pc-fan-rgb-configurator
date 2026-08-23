@@ -12,11 +12,24 @@ this removes the HTTP layer, caching, and the browser entirely.
     drag on empty space     rubber-band select
     Brush mode + drag       paint LEDs directly
 
+In Layer mode the canvas edits effect boxes instead of LEDs:
+
+    drag inside a box       move it
+    drag a corner           resize, opposite corner pinned
+    drag the top handle     rotate
+    arrows / shift-arrows   nudge by 1 / 10 px
+    Delete                  remove the selected box
+
+A box applies its effect only to the LEDs it covers, evaluated in the box's
+own local space, so the effect spans the box wherever it sits or however it is
+turned. Later layers paint over earlier ones.
+
 Effects animate in the canvas immediately; the hardware is only written when
 "Drive hardware" is ticked. Takes manual_override.flag while it has control
 so the daemon stands down, and releases on exit.
 """
 import ctypes
+import math
 import pathlib
 import queue
 import threading
@@ -25,6 +38,7 @@ import tkinter as tk
 from tkinter import colorchooser, ttk
 
 import case_layout
+import fx_layers
 import openrgb_boot
 import rgb_effects as fx
 
@@ -240,6 +254,12 @@ class App:
         self.frames = 0
         self.brush = False
         self.drag = self.marq = None
+        # effect layers: movable/rotatable boxes that own the LEDs they cover
+        self.layers = []
+        self.active = None          # the selected Layer, or None
+        self.layer_mode = False
+        self.lyr_items = []         # canvas items, rebuilt on change
+        self.ldrag = None
         self.controlling = False
         self.colour = "#ff3aa2"
         # palette per effect, so each remembers its own look
@@ -257,8 +277,33 @@ class App:
         side.pack(side="right", fill="y", padx=(0, 10), pady=10)
         side.pack_propagate(False)
 
+        # The panel scrolls. Twice now a new section has pushed the controls
+        # past the bottom of the window, and both times the fix was to size
+        # the window to the content - which only works until the content grows
+        # again, or the screen is smaller than the panel. Scrolling ends that
+        # class of bug rather than deferring it.
+        pcv = tk.Canvas(side, bg=PANEL, highlightthickness=0)
+        vsb = tk.Scrollbar(side, orient="vertical", command=pcv.yview,
+                           troughcolor=PANEL, bg=BTN, activebackground=ACCENT,
+                           highlightthickness=0, bd=0, width=12)
+        pcv.configure(yscrollcommand=vsb.set)
+        vsb.pack(side="right", fill="y")
+        pcv.pack(side="left", fill="both", expand=True)
+        inner = tk.Frame(pcv, bg=PANEL)
+        iwin = pcv.create_window((0, 0), window=inner, anchor="nw")
+        inner.bind("<Configure>",
+                   lambda e: pcv.configure(scrollregion=pcv.bbox("all")))
+        pcv.bind("<Configure>",
+                 lambda e: pcv.itemconfigure(iwin, width=e.width))
+
+        def _wheel(e):
+            pcv.yview_scroll(-1 if e.delta > 0 else 1, "units")
+        pcv.bind("<Enter>", lambda e: pcv.bind_all("<MouseWheel>", _wheel))
+        pcv.bind("<Leave>", lambda e: pcv.unbind_all("<MouseWheel>"))
+        self.panel_inner = inner
+
         self._build_case()
-        self._build_panel(side)
+        self._build_panel(inner)
 
         self.status = tk.Label(root, text="starting...", anchor="w",
                                bg=BG, fg=MUTED, font=FONT)
@@ -272,7 +317,7 @@ class App:
         # panel simply overflowed off the bottom, needing a manual resize.
         root.update_idletasks()
         want_w = W + 360 + 40
-        want_h = max(H + 60, side.winfo_reqheight() + 60)
+        want_h = max(H + 60, inner.winfo_reqheight() + 60)
         sw = root.winfo_screenwidth()
         sh = root.winfo_screenheight() - 60
         w, h = min(want_w, sw - 40), min(want_h, sh)
@@ -281,6 +326,18 @@ class App:
 
         self.pal_strip.bind("<Configure>", lambda e: self.draw_palette())
         root.after(200, self.draw_palette)
+        self.refresh_layer_list()
+
+        # Layer keys. Bound on the root so they work wherever focus sits, but
+        # only act in layer mode - otherwise Delete would fire while the user
+        # is doing something else entirely.
+        root.bind("<Delete>", lambda e: self.layer_mode and self.del_layer())
+        for key, dx, dy in (("Left", -1, 0), ("Right", 1, 0),
+                            ("Up", 0, -1), ("Down", 0, 1)):
+            root.bind(f"<{key}>",
+                      lambda e, a=dx, b=dy: self.nudge_layer(a, b))
+            root.bind(f"<Shift-{key}>",
+                      lambda e, a=dx, b=dy: self.nudge_layer(a * 10, b * 10))
 
         self.hw.start()
         root.protocol("WM_DELETE_WINDOW", self.close)
@@ -313,7 +370,7 @@ class App:
                 if i in el.get("blanks", ()):
                     self.leds.append({"el": el, "i": i, "x": x, "y": y,
                                       "nx": nx, "ny": ny, "rgb": (0, 0, 0),
-                                      "item": None})
+                                      "manual": (0, 0, 0), "item": None})
                     continue
                 h = el.get("cell", 27) / 2 - 2
                 item = c.create_rectangle(x - h, y - h, x + h, y + h,
@@ -325,7 +382,7 @@ class App:
                                      fill=LED_OFF, outline=LED_OFF_EDGE,
                                      width=1)
             rec = {"el": el, "i": i, "x": x, "y": y, "nx": nx, "ny": ny,
-                   "rgb": (0, 0, 0), "item": item}
+                   "rgb": (0, 0, 0), "manual": (0, 0, 0), "item": item}
             self.leds.append(rec)
             self.byel.setdefault(el["id"], []).append(rec)
 
@@ -470,6 +527,38 @@ class App:
                                                         expand=True,
                                                         fill="x", padx=2)
 
+        head("EFFECT LAYERS")
+        tk.Label(p, text="A box that applies its effect only to the LEDs it\n"
+                         "covers. Drag to move, corners resize, the handle\n"
+                         "above the top edge rotates.",
+                 bg=PANEL, fg=MUTED, font=FONT_L, anchor="w",
+                 justify="left").pack(fill="x", padx=16, pady=(0, 4))
+        self.lyr_btn = mkbtn(p, "Layer mode", self.toggle_layers)
+        self.lyr_btn.pack(fill="x", padx=16, pady=2)
+        r = row()
+        mkbtn(r, "+ Add", self.add_layer, "accent").pack(
+            side="left", expand=True, fill="x", padx=2)
+        mkbtn(r, "Delete", self.del_layer).pack(
+            side="left", expand=True, fill="x", padx=2)
+        r = row()
+        mkbtn(r, "Lower", lambda: self.raise_layer(-1)).pack(
+            side="left", expand=True, fill="x", padx=2)
+        mkbtn(r, "Raise", lambda: self.raise_layer(1)).pack(
+            side="left", expand=True, fill="x", padx=2)
+        self.lyr_list = tk.Frame(p, bg=PANEL)
+        self.lyr_list.pack(fill="x", padx=16, pady=(6, 2))
+        self.opa_lbl = tk.Label(p, text="Layer opacity: 100%", bg=PANEL,
+                                fg=MUTED, font=FONT_L, anchor="w")
+        self.opa_lbl.pack(fill="x", padx=16, pady=(8, 0))
+        self.opacity = tk.IntVar(value=100)
+        tk.Scale(p, from_=5, to=100, orient="horizontal", variable=self.opacity,
+                 bg=PANEL, fg=INK, troughcolor=BTN, highlightthickness=0,
+                 bd=0, sliderrelief="flat", activebackground=ACCENT,
+                 font=FONT_L, showvalue=False, command=self.set_layer_opacity
+                 ).pack(fill="x", padx=14)
+        self.blend_btn = mkbtn(p, "Blend: normal", self.cycle_layer_blend)
+        self.blend_btn.pack(fill="x", padx=16, pady=2)
+
     def set_bars(self, _v=None):
         n = int(self.bars.get())
         fx.VU_BARS = n
@@ -492,27 +581,50 @@ class App:
     # ---------- palettes
 
     def active_palette(self):
-        name = self.palettes.get(self.effect, self.palette_name)
+        return self.palette_for(self.palettes.get(self.effect,
+                                                  self.palette_name))
+
+    def palette_for(self, name, default=None):
+        """Resolve a palette NAME to colours. Layers store the name, so a
+        layer keeps its look even after the global palette changes."""
+        if name is None:
+            return default if default is not None else fx.SYNTHWAVE
         if name == "custom":
             return self.custom
         return fx.PALETTES.get(name, fx.SYNTHWAVE)
+
+    def shown_palette_name(self):
+        if self.layer_mode and self.active:
+            return self.active.palette or self.palette_name
+        return self.palettes.get(self.effect, self.palette_name)
 
     def draw_palette(self):
         c = self.pal_strip
         c.delete("all")
         w = max(c.winfo_width(), 240)
-        pal = self.active_palette()
+        name = self.shown_palette_name()
+        pal = self.palette_for(name)
         for i in range(w):
             col = fx.gamma(fx.cyclic_gradient(pal, i / w))
             c.create_line(i, 0, i, 26, fill="#%02x%02x%02x" % col)
-        name = self.palettes.get(self.effect, self.palette_name)
+        owner = self.effect
         note = ""
-        if self.effect in getattr(fx, "IGNORES_PALETTE", ()):
+        if self.layer_mode and self.active:
+            owner = self.active.effect
+            note = f"  ({self.active.name})"
+        if owner in getattr(fx, "IGNORES_PALETTE", ()):
             note = "  (this effect uses fixed colours)"
         self.pal_lbl.config(text=name + note)
 
     def cycle_palette(self, step):
         names = list(fx.PALETTES) + ["custom"]
+        if self.layer_mode and self.active:
+            cur = self.active.palette or self.palette_name
+            i = (names.index(cur) if cur in names else 0) + step
+            self.active.palette = names[i % len(names)]
+            self.draw_palette()
+            self.say(f"{self.active.name} palette: {self.active.palette}")
+            return
         cur = self.palettes.get(self.effect, self.palette_name)
         i = (names.index(cur) if cur in names else 0) + step
         new = names[i % len(names)]
@@ -562,6 +674,163 @@ class App:
                 b.pack(side="left", expand=True, fill="x", padx=2)
                 self.fxbtns[name] = b
                 setbtn(b, name == self.effect)
+
+    # ---------- effect layers
+
+    def add_layer(self):
+        """New box in the middle of the case, carrying the current effect."""
+        eff = self.effect or "wave"
+        lay = fx_layers.Layer(eff, W * 0.5, H * 0.42, W * 0.42, H * 0.22,
+                              palette=self.palette_name)
+        lay.t0 = time.monotonic()
+        self.layers.append(lay)
+        self.active = lay
+        lay.reindex(self.leds)
+        if not self.layer_mode:
+            self.toggle_layers()
+        self.draw_layers()
+        self.refresh_layer_list()
+        self.say(f"{lay.name}: {eff}, {len(lay.members)} LEDs covered")
+
+    def del_layer(self):
+        if not self.active:
+            return
+        name = self.active.name
+        self.layers.remove(self.active)
+        self.active = self.layers[-1] if self.layers else None
+        self.draw_layers()
+        self.refresh_layer_list()
+        self.say(f"removed {name}")
+
+    def raise_layer(self, step):
+        """Reorder. Later layers paint over earlier ones."""
+        if not self.active or len(self.layers) < 2:
+            return
+        i = self.layers.index(self.active)
+        j = max(0, min(len(self.layers) - 1, i + step))
+        if i == j:
+            return
+        self.layers.insert(j, self.layers.pop(i))
+        self.refresh_layer_list()
+        self.say(f"{self.active.name} -> position {j + 1} of {len(self.layers)}")
+
+    def toggle_layers(self):
+        self.layer_mode = not self.layer_mode
+        setbtn(self.lyr_btn, self.layer_mode)
+        if self.layer_mode:
+            self.sel_none()
+        self.draw_layers()
+        self.say("layer mode: drag to move, corners resize, top handle rotates"
+                 if self.layer_mode else "layer mode off - LED selection active")
+
+    def toggle_layer_on(self, lay=None):
+        lay = lay or self.active
+        if not lay:
+            return
+        lay.on = not lay.on
+        self.refresh_layer_list()
+
+    def set_layer_opacity(self, _v=None):
+        if self.active:
+            self.active.opacity = self.opacity.get() / 100.0
+        self.opa_lbl.config(text=f"Layer opacity: {self.opacity.get()}%")
+
+    def cycle_layer_blend(self):
+        if not self.active:
+            return
+        self.blend_btn.config(text=f"Blend: {self.active.cycle_blend()}")
+
+    def reindex_active(self):
+        if self.active:
+            self.active.reindex(self.leds)
+
+    def nudge_layer(self, dx, dy):
+        if not (self.layer_mode and self.active):
+            return
+        self.active.nudge(dx, dy)
+        self.reindex_active()
+        self.draw_layers()
+
+    def draw_layers(self):
+        """Redraw the boxes. Cheap enough to rebuild wholesale, and that keeps
+        the handles from drifting out of sync with the geometry."""
+        for it in self.lyr_items:
+            self.cv.delete(it)
+        self.lyr_items = []
+        if not self.layer_mode:
+            return
+        for lay in self.layers:
+            act = lay is self.active
+            col = ACCENT if act else "#5f6b82"
+            pts = [c for xy in lay.corners() for c in xy]
+            self.lyr_items.append(self.cv.create_polygon(
+                pts, outline=col, fill="", width=2 if act else 1,
+                dash=() if lay.on else (5, 4)))
+            self.lyr_items.append(self.cv.create_text(
+                lay.x, lay.y, text=f"{lay.name}\n{lay.effect}",
+                fill=col, font=FONT_L, justify="center"))
+            if not act:
+                continue
+            hx, hy = lay.rot_handle()
+            tx, ty = lay.top_mid()
+            self.lyr_items.append(self.cv.create_line(
+                tx, ty, hx, hy, fill=col, width=2))
+            r = fx_layers.HANDLE_R
+            self.lyr_items.append(self.cv.create_oval(
+                hx - r, hy - r, hx + r, hy + r, fill=col, outline="#ffffff"))
+            for cx, cy in lay.corners():
+                self.lyr_items.append(self.cv.create_rectangle(
+                    cx - r, cy - r, cx + r, cy + r,
+                    fill="#ffffff", outline=col))
+
+    def refresh_layer_list(self):
+        """Rebuild the layer rows. Topmost first, matching how they paint."""
+        for w in self.lyr_list.winfo_children():
+            w.destroy()
+        if not self.layers:
+            tk.Label(self.lyr_list, text="no layers yet", bg=PANEL, fg=MUTED,
+                     font=FONT_L, anchor="w").pack(fill="x")
+        for lay in reversed(self.layers):
+            f = tk.Frame(self.lyr_list, bg=CARD if lay is self.active else PANEL,
+                         highlightthickness=1,
+                         highlightbackground=ACCENT if lay is self.active
+                         else LINE)
+            f.pack(fill="x", pady=1)
+            dot = tk.Label(f, text="on" if lay.on else "off", width=4,
+                           bg=f["bg"], fg=ACCENT if lay.on else MUTED,
+                           font=FONT_L, cursor="hand2")
+            dot.pack(side="left", padx=(6, 2), pady=3)
+            dot.bind("<Button-1>", lambda e, l=lay: self.toggle_layer_on(l))
+            txt = tk.Label(f, text=f"{lay.name} · {lay.effect}", bg=f["bg"],
+                           fg=INK if lay is self.active else MUTED,
+                           font=FONT_L, anchor="w", cursor="hand2")
+            txt.pack(side="left", fill="x", expand=True, pady=3)
+            txt.bind("<Button-1>", lambda e, l=lay: self.select_layer(l))
+        if self.active:
+            self.opacity.set(int(round(self.active.opacity * 100)))
+            self.opa_lbl.config(text=f"Layer opacity: {self.opacity.get()}%")
+            self.blend_btn.config(text=f"Blend: {self.active.blend}")
+        self.draw_palette()
+
+    def select_layer(self, lay):
+        self.active = lay
+        if not self.layer_mode:
+            self.toggle_layers()
+        self.draw_layers()
+        self.refresh_layer_list()
+
+    def layer_at(self, x, y):
+        """Topmost layer whose body or handles are under the point."""
+        for lay in reversed(self.layers):
+            if lay is self.active:
+                if lay.hit_rot(x, y):
+                    return lay, ("rot", None)
+                h = lay.hit_handle(x, y)
+                if h is not None:
+                    return lay, ("size", h)
+            if lay.contains(x, y):
+                return lay, ("move", (x - lay.x, y - lay.y))
+        return None, None
 
     # ---------- selection
 
@@ -617,6 +886,20 @@ class App:
     # ---------- mouse
 
     def on_down(self, e):
+        if self.layer_mode:
+            lay, act = self.layer_at(e.x, e.y)
+            if lay is not None:
+                if lay is not self.active:
+                    self.active = lay
+                    self.refresh_layer_list()
+                self.ldrag = act
+                self.draw_layers()
+            else:
+                self.active = None
+                self.ldrag = None
+                self.draw_layers()
+                self.refresh_layer_list()
+            return
         if self.brush:
             self.drag = "paint"; self.paint_at(e.x, e.y); return
         el_id = self.hit_centre(e.x, e.y)
@@ -637,12 +920,32 @@ class App:
                                              outline="#ff3aa2", dash=(4, 3))
 
     def on_move(self, e):
+        if self.layer_mode:
+            if not (self.ldrag and self.active):
+                return
+            kind, data = self.ldrag
+            if kind == "move":
+                self.active.move_to(e.x - data[0], e.y - data[1])
+            elif kind == "size":
+                self.active.resize_from(data, e.x, e.y)
+            elif kind == "rot":
+                self.active.rotate_to(e.x, e.y)
+            self.reindex_active()
+            self.draw_layers()
+            return
         if self.drag == "paint":
             self.paint_at(e.x, e.y); return
         if isinstance(self.drag, tuple) and self.marq:
             self.cv.coords(self.marq, self.drag[1], self.drag[2], e.x, e.y)
 
     def on_up(self, e):
+        if self.layer_mode:
+            if self.ldrag and self.active:
+                a = self.active
+                self.say(f"{a.name}: {len(a.members)} LEDs covered, "
+                         f"{int(round(math.degrees(a.angle))) % 360} deg")
+            self.ldrag = None
+            return
         if isinstance(self.drag, tuple) and self.marq:
             _, x0, y0, keep = self.drag
             x1, y1 = min(x0, e.x), min(y0, e.y)
@@ -662,7 +965,7 @@ class App:
         rgb = self.hex2rgb(self.colour)
         for r in self.leds:
             if (r["x"] - x) ** 2 + (r["y"] - y) ** 2 < 90:
-                self.set_led(r, rgb)
+                self.set_led(r, rgb, manual=True)
 
     # ---------- colour
 
@@ -680,8 +983,12 @@ class App:
         if h:
             self.set_colour(h)
 
-    def set_led(self, r, rgb):
+    def set_led(self, r, rgb, manual=False):
         r["rgb"] = tuple(max(0, min(255, int(v))) for v in rgb)
+        if manual:
+            # remembered separately, so it survives as the background under
+            # the layers rather than being overwritten by the last frame
+            r["manual"] = r["rgb"]
         if r["item"] is None:
             return                      # matrix gap: addressed, never drawn
         dark = sum(r["rgb"]) < 24
@@ -692,18 +999,31 @@ class App:
         rgb = rgb or self.hex2rgb(self.colour)
         for r in self.leds:
             if (r["el"]["id"], r["i"]) in self.sel:
-                self.set_led(r, rgb)
+                self.set_led(r, rgb, manual=True)
 
     def all_off(self):
         self.stop_fx()
+        for lay in self.layers:
+            lay.on = False
+        self.refresh_layer_list()
         for r in self.leds:
-            self.set_led(r, (0, 0, 0))
+            self.set_led(r, (0, 0, 0), manual=True)
         self.push()
         self.say("all LEDs off")
 
     # ---------- animation
 
     def start_fx(self, name):
+        # With a layer selected, the effect buttons set THAT layer's effect.
+        # Selecting a layer is the explicit act that redirects them, which is
+        # how SignalRGB behaves and keeps one set of buttons doing both jobs.
+        if self.layer_mode and self.active:
+            self.active.effect = name
+            self.active.t0 = time.monotonic()
+            self.draw_layers()
+            self.refresh_layer_list()
+            self.say(f"{self.active.name}: {name}")
+            return
         for n, b in list(self.fxbtns.items()):
             try:
                 setbtn(b, n == name)
@@ -764,17 +1084,39 @@ class App:
 
     def tick(self):
         try:
-            if self.effect:
-                fn = fx.SPATIAL[self.effect]
+            live = [l for l in self.layers if l.on and l.effect in fx.SPATIAL]
+            if self.effect or live:
                 t = (time.monotonic() - self.t0) * self.speed.get()
                 pal = self.active_palette()
+                fn = fx.SPATIAL[self.effect] if self.effect else None
+                # Base pass. With no global effect the manually painted
+                # colour is the background, so layers composite over painting
+                # instead of erasing it.
                 for r in self.leds:
-                    self.set_led(r, fn(r["nx"], r["ny"], t, pal))
+                    r["c"] = (fn(r["nx"], r["ny"], t, pal) if fn
+                              else r.get("manual", (0, 0, 0)))
+                # Layers, in order: later ones paint over earlier ones. Only
+                # the LEDs a box covers are touched, using the box's own local
+                # coordinates so the effect spans the box wherever it sits.
+                for lay in live:
+                    lfn = fx.SPATIAL[lay.effect]
+                    lpal = self.palette_for(lay.palette, pal)
+                    lt = t * lay.speed
+                    for r in lay.members:
+                        u, v = lay.local(r["x"], r["y"])
+                        r["c"] = lay.apply(r["c"], lfn(u, v, lt, lpal))
+                for r in self.leds:
+                    self.set_led(r, r["c"])
                 self.frames += 1
-                if self.frames % 30 == 0 and (self.effect or "").startswith("vu"):
+                vu_live = ((self.effect or "").startswith("vu")
+                           or any(l.effect.startswith("vu") for l in live))
+                if self.frames % 30 == 0 and vu_live:
                     self.set_bars()
                 if self.frames % 30 == 0:
-                    self.say(f"{self.effect}: {self.frames} frames, t={t:.1f}s"
+                    what = self.effect or "layers"
+                    extra = f" +{len(live)} layer(s)" if live and self.effect \
+                        else (f"{len(live)} layer(s)" if live else "")
+                    self.say(f"{what}{extra}: {self.frames} frames, t={t:.1f}s"
                              + ("  (driving hardware)" if self.controlling
                                 and self.hw_var.get() else "  (preview only)"))
                 self.push()

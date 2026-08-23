@@ -516,3 +516,199 @@ EFFECT_ORDER = [
     "rain", "twinkle", "confetti", "juggle",
     "wipe", "lightning", "fire", "breathe", "pulse",
 ]
+
+
+# Grouped for the UI. 23 flat buttons is a wall of options; five categories of
+# four or five is scannable, and only one group is on screen at a time so the
+# panel stays a fixed height however many effects exist.
+EFFECT_GROUPS = {
+    "Waves":   ["wave", "wave >", "wave <", "wave ^", "wave v"],
+    "Flow":    ["radial", "spiral", "plasma", "aurora"],
+    "Classic": ["matrix", "scanner", "theater", "meteor", "comet"],
+    "Scatter": ["rain", "twinkle", "confetti", "juggle"],
+    "Other":   ["wipe", "lightning", "fire", "breathe", "pulse"],
+}
+
+
+# Named palettes. All are SYMMETRIC where they wrap (…-> back through a middle
+# stop) for the reason documented on SYNTHWAVE: a bare loop has to interpolate
+# the last colour straight back to the first, and that line crosses the
+# desaturated middle of the RGB cube.
+PALETTES = {
+    "synthwave": SYNTHWAVE,
+    "sunset":    SUNSET,
+    "ocean":     [(0, 90, 255), (0, 200, 220), (0, 255, 150), (0, 200, 220)],
+    "fire":      [(255, 30, 0), (255, 140, 0), (255, 225, 90), (255, 140, 0)],
+    "forest":    [(0, 190, 60), (140, 230, 40), (0, 120, 90), (140, 230, 40)],
+    "ice":       [(120, 200, 255), (255, 255, 255), (0, 160, 255), (255, 255, 255)],
+    "toxic":     [(160, 255, 0), (0, 255, 120), (220, 255, 0), (0, 255, 120)],
+    "candy":     [(255, 60, 160), (255, 210, 90), (120, 200, 255), (255, 210, 90)],
+    "mono red":  [(255, 0, 0), (120, 0, 0), (255, 60, 30), (120, 0, 0)],
+    "mono blue": [(0, 80, 255), (0, 20, 120), (60, 180, 255), (0, 20, 120)],
+    "white":     [(255, 255, 255), (170, 180, 200), (255, 255, 255), (200, 210, 230)],
+    "rainbow":   [(255, 0, 0), (255, 200, 0), (0, 230, 60),
+                  (0, 200, 255), (90, 60, 255), (255, 0, 180)],
+}
+
+# Per-effect palette overrides, so each effect can carry its own look.
+# Effects that are intrinsically coloured (matrix green, fire, lightning)
+# ignore the palette by design - noted here rather than hidden.
+IGNORES_PALETTE = {"matrix", "fire", "lightning"}
+
+
+# ===========================================================================
+# EFFECT LIBRARY - BATCH 2
+# Stacking, chasers, concentric fills and the other staples commercial RGB
+# suites ship. Same signature and the same position-hashed randomness rule.
+# ===========================================================================
+
+
+def fx_stack(nx, ny, t, palette, speed=0.30, layers=8.0):
+    """Blocks fall and stack up from the bottom, then the pile clears."""
+    cycle = _wrap(t * speed / 3.0)
+    filled = math.floor(cycle * (layers + 1))          # how many are settled
+    band = math.floor((1.0 - ny) * layers)
+    if band < filled:
+        return gamma(cyclic_gradient(palette, band / layers))
+    if band == filled:                                  # the block in flight
+        drop = _wrap(cycle * (layers + 1))
+        y_of_band = 1.0 - (band + 1) / layers
+        if ny <= y_of_band + drop * (1.0 - y_of_band) + 0.02:
+            return gamma(cyclic_gradient(palette, band / layers))
+    return (0, 0, 0)
+
+
+def fx_chaser(nx, ny, t, palette, speed=0.35, width=0.10, dots=3):
+    """Dots chasing each other around the perimeter of the case."""
+    ang = _wrap(math.atan2(ny - 0.5, nx - 0.5) / math.tau)
+    best, colour = 0.0, (0, 0, 0)
+    for k in range(dots):
+        head = _wrap(t * speed + k / dots)
+        d = min(abs(ang - head), 1 - abs(ang - head))
+        b = max(0.0, 1.0 - d / width) ** 2
+        if b > best:
+            best, colour = b, cyclic_gradient(palette, k / dots)
+    return tuple(max(0, min(255, round(c * best))) for c in gamma(colour))
+
+
+def fx_concentric(nx, ny, t, palette, speed=0.28):
+    """Everything lights from the centre outward, then unlights the same way."""
+    d = math.hypot(nx - 0.5, ny - 0.5) / 0.72
+    p = _wrap(t * speed)
+    if p < 0.5:
+        on = d <= p * 2.0                     # filling outward
+    else:
+        on = d > (p - 0.5) * 2.0              # clearing outward
+    if not on:
+        return (0, 0, 0)
+    return gamma(cyclic_gradient(palette, d * 0.7 + t * 0.05))
+
+
+def fx_sweep_fill(nx, ny, t, palette, speed=0.26):
+    """Fills left to right, then empties left to right."""
+    p = _wrap(t * speed)
+    on = nx <= p * 2.0 if p < 0.5 else nx > (p - 0.5) * 2.0
+    return gamma(cyclic_gradient(palette, nx * 0.6 + t * 0.05)) if on else (0, 0, 0)
+
+
+def fx_bounce(nx, ny, t, palette, speed=0.40, width=0.13):
+    """A block bouncing off the walls, leaving a soft trail."""
+    p = abs(_wrap(t * speed) * 2.0 - 1.0)
+    d = abs(nx - p)
+    b = max(0.0, 1.0 - d / width) ** 1.6
+    return tuple(max(0, min(255, round(c * b)))
+                 for c in gamma(cyclic_gradient(palette, p)))
+
+
+def fx_strobe(nx, ny, t, palette, rate=2.2):
+    """Hard on/off flashes."""
+    n = math.floor(t * rate)
+    if _wrap(t * rate) > 0.18:
+        return (0, 0, 0)
+    return gamma(cyclic_gradient(palette, _hash(n, 5.5)))
+
+
+def fx_ripple(nx, ny, t, palette, speed=0.30, drops=3):
+    """Several expanding rings from fixed points, like rain on water."""
+    total = 0.0
+    colour = (0, 0, 0)
+    for k in range(drops):
+        cx, cy = _hash(k, 1.7), _hash(k, 9.2)
+        phase = _wrap(t * speed + k / drops)
+        d = math.hypot(nx - cx, ny - cy)
+        ring = abs(d - phase * 0.9)
+        b = max(0.0, 1.0 - ring / 0.09) ** 2 * (1.0 - phase)
+        if b > total:
+            total, colour = b, cyclic_gradient(palette, k / drops + t * 0.05)
+    return tuple(max(0, min(255, round(c * total))) for c in gamma(colour))
+
+
+def fx_spectrum(nx, ny, t, palette, speed=0.10):
+    """Whole case cycling through the palette in unison."""
+    return gamma(cyclic_gradient(palette, _wrap(t * speed)))
+
+
+def fx_gradient_shift(nx, ny, t, palette, speed=0.12):
+    """A static-looking corner-to-corner gradient that slowly drifts."""
+    return gamma(cyclic_gradient(palette, (nx * 0.6 + ny * 0.4) + t * speed))
+
+
+def fx_starburst(nx, ny, t, palette, speed=0.45, arms=6):
+    """Spokes flashing outward from the centre."""
+    ang = math.atan2(ny - 0.5, nx - 0.5) / math.tau
+    d = math.hypot(nx - 0.5, ny - 0.5) / 0.72
+    spoke = _wrap(ang * arms)
+    near = min(spoke, 1 - spoke)
+    if near > 0.16:
+        return (0, 0, 0)
+    phase = _wrap(t * speed)
+    b = max(0.0, 1.0 - abs(d - phase) / 0.28) ** 2
+    return tuple(max(0, min(255, round(c * b)))
+                 for c in gamma(cyclic_gradient(palette, _wrap(ang + t * 0.06))))
+
+
+def fx_snake(nx, ny, t, palette, speed=0.22, length=0.30):
+    """A long body winding around the case."""
+    ang = _wrap(math.atan2(ny - 0.5, nx - 0.5) / math.tau)
+    head = _wrap(t * speed)
+    d = _wrap(head - ang)
+    if d > length:
+        return (0, 0, 0)
+    f = 1.0 - d / length
+    return tuple(max(0, min(255, round(c * f)))
+                 for c in gamma(cyclic_gradient(palette, _wrap(ang + t * 0.05))))
+
+
+def fx_breathe_half(nx, ny, t, palette, speed=0.14):
+    """Two halves of the case breathing in opposition."""
+    p = _wrap(t * speed)
+    left = 0.5 - 0.5 * math.cos(p * math.tau)
+    b = left if nx < 0.5 else 1.0 - left
+    b = 0.12 + 0.88 * b
+    return tuple(max(0, min(255, round(c * b)))
+                 for c in gamma(cyclic_gradient(palette, 0.0 if nx < 0.5 else 0.5)))
+
+
+SPATIAL.update({
+    "stack": fx_stack,
+    "chaser": fx_chaser,
+    "concentric": fx_concentric,
+    "fill": fx_sweep_fill,
+    "bounce": fx_bounce,
+    "strobe": fx_strobe,
+    "ripple": fx_ripple,
+    "spectrum": fx_spectrum,
+    "gradient": fx_gradient_shift,
+    "starburst": fx_starburst,
+    "snake": fx_snake,
+    "split": fx_breathe_half,
+})
+
+EFFECT_GROUPS = {
+    "Waves":   ["wave", "wave >", "wave <", "wave ^", "wave v", "gradient"],
+    "Flow":    ["radial", "spiral", "plasma", "aurora", "ripple", "snake"],
+    "Classic": ["matrix", "scanner", "theater", "meteor", "comet", "chaser"],
+    "Fill":    ["concentric", "fill", "stack", "wipe", "bounce", "starburst"],
+    "Scatter": ["rain", "twinkle", "confetti", "juggle", "strobe", "lightning"],
+    "Glow":    ["breathe", "pulse", "split", "spectrum", "fire"],
+}

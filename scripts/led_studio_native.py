@@ -242,6 +242,10 @@ class App:
         self.drag = self.marq = None
         self.controlling = False
         self.colour = "#ff3aa2"
+        # palette per effect, so each remembers its own look
+        self.palettes = {}
+        self.palette_name = "synthwave"
+        self.custom = list(fx.SYNTHWAVE)
 
         wrap = tk.Frame(root, bg=BG)
         wrap.pack(fill="both", expand=True)
@@ -263,6 +267,20 @@ class App:
         self.cv.bind("<Button-1>", self.on_down)
         self.cv.bind("<B1-Motion>", self.on_move)
         self.cv.bind("<ButtonRelease-1>", self.on_up)
+
+        # Size to content. Previously the window kept its default size and the
+        # panel simply overflowed off the bottom, needing a manual resize.
+        root.update_idletasks()
+        want_w = W + 360 + 40
+        want_h = max(H + 60, side.winfo_reqheight() + 60)
+        sw = root.winfo_screenwidth()
+        sh = root.winfo_screenheight() - 60
+        w, h = min(want_w, sw - 40), min(want_h, sh)
+        root.geometry(f"{w}x{h}+{max(0,(sw-w)//2)}+20")
+        root.minsize(900, 620)
+
+        self.pal_strip.bind("<Configure>", lambda e: self.draw_palette())
+        root.after(200, self.draw_palette)
 
         self.hw.start()
         root.protocol("WM_DELETE_WINDOW", self.close)
@@ -358,19 +376,38 @@ class App:
         mkbtn(p, "Blank selection", lambda: self.paint_sel((0, 0, 0)), "ghost"
               ).pack(fill="x", padx=16, pady=2)
 
+        head("PALETTE")
+        self.pal_lbl = tk.Label(p, text="synthwave", bg=PANEL, fg=INK,
+                                font=FONT, anchor="w")
+        self.pal_lbl.pack(fill="x", padx=16)
+        self.pal_strip = tk.Canvas(p, height=26, bg=PANEL,
+                                   highlightthickness=1,
+                                   highlightbackground=LINE)
+        self.pal_strip.pack(fill="x", padx=16, pady=(4, 4))
+        pr = row()
+        mkbtn(pr, "<", lambda: self.cycle_palette(-1)).pack(side="left", padx=2)
+        mkbtn(pr, "Edit...", self.edit_palette).pack(side="left", expand=True,
+                                                     fill="x", padx=2)
+        mkbtn(pr, ">", lambda: self.cycle_palette(1)).pack(side="left", padx=2)
+
         head("ANIMATIONS")
-        # EFFECT_ORDER groups them sensibly: directional waves, then the
-        # classics (matrix, scanner, chase, meteor, twinkle, ...)
-        names = getattr(fx, "EFFECT_ORDER", sorted(fx.SPATIAL))
-        names = [n for n in names if n in fx.SPATIAL]
-        per = 3
-        for i in range(0, len(names), per):
-            r = row()
-            for name in names[i:i + per]:
-                b = mkbtn(r, name, lambda x=name: self.start_fx(x))
-                b.config(padx=4, font=FONT_L)
-                b.pack(side="left", expand=True, fill="x", padx=2)
-                self.fxbtns[name] = b
+        # One category on screen at a time: 23 flat buttons is a wall, and it
+        # also made the panel taller than the window. This keeps the panel a
+        # fixed height no matter how many effects exist.
+        self.groups = getattr(fx, "EFFECT_GROUPS", {"All": sorted(fx.SPATIAL)})
+        self.catbtns = {}
+        cr = row()
+        for cat in self.groups:
+            b = mkbtn(cr, cat, lambda c=cat: self.show_cat(c))
+            b.config(padx=2, font=FONT_L)
+            b.pack(side="left", expand=True, fill="x", padx=1)
+            self.catbtns[cat] = b
+
+        # fixed-height holder so switching category never resizes the panel
+        self.fxbox = tk.Frame(p, bg=PANEL, height=96)
+        self.fxbox.pack(fill="x", padx=16, pady=(4, 0))
+        self.fxbox.pack_propagate(False)
+        self.show_cat(next(iter(self.groups)))
 
         tk.Label(p, text="speed", bg=PANEL, fg=MUTED, font=FONT_L, anchor="w"
                  ).pack(fill="x", padx=16, pady=(10, 0))
@@ -386,6 +423,80 @@ class App:
         mkbtn(r, "All OFF", self.all_off, "ghost").pack(side="left",
                                                         expand=True,
                                                         fill="x", padx=2)
+
+    # ---------- palettes
+
+    def active_palette(self):
+        name = self.palettes.get(self.effect, self.palette_name)
+        if name == "custom":
+            return self.custom
+        return fx.PALETTES.get(name, fx.SYNTHWAVE)
+
+    def draw_palette(self):
+        c = self.pal_strip
+        c.delete("all")
+        w = max(c.winfo_width(), 240)
+        pal = self.active_palette()
+        for i in range(w):
+            col = fx.gamma(fx.cyclic_gradient(pal, i / w))
+            c.create_line(i, 0, i, 26, fill="#%02x%02x%02x" % col)
+        name = self.palettes.get(self.effect, self.palette_name)
+        note = ""
+        if self.effect in getattr(fx, "IGNORES_PALETTE", ()):
+            note = "  (this effect uses fixed colours)"
+        self.pal_lbl.config(text=name + note)
+
+    def cycle_palette(self, step):
+        names = list(fx.PALETTES) + ["custom"]
+        cur = self.palettes.get(self.effect, self.palette_name)
+        i = (names.index(cur) if cur in names else 0) + step
+        new = names[i % len(names)]
+        if self.effect:
+            self.palettes[self.effect] = new     # remembered per effect
+        self.palette_name = new
+        self.draw_palette()
+        self.say(f"palette: {new}"
+                 + (f" for {self.effect}" if self.effect else " (default)"))
+
+    def edit_palette(self):
+        """Build a custom palette by picking each stop in turn."""
+        stops = []
+        for n in range(4):
+            rgb, h = colorchooser.askcolor(
+                color="#%02x%02x%02x" % self.custom[min(n, len(self.custom)-1)],
+                title=f"Custom palette - stop {n+1} of 4 (Cancel to finish)")
+            if not h:
+                break
+            stops.append(tuple(int(v) for v in rgb))
+        if len(stops) < 2:
+            self.say("custom palette needs at least two stops")
+            return
+        # mirror back through the middle so the wrap stays saturated
+        self.custom = stops + stops[-2:0:-1] if len(stops) > 2 else stops + [stops[0]]
+        if self.effect:
+            self.palettes[self.effect] = "custom"
+        self.palette_name = "custom"
+        self.draw_palette()
+        self.say(f"custom palette: {len(stops)} stops")
+
+    def show_cat(self, cat):
+        """Render just this category's effects into the fixed-height holder."""
+        for b in self.catbtns.values():
+            setbtn(b, False)
+        setbtn(self.catbtns[cat], True)
+        for w in self.fxbox.winfo_children():
+            w.destroy()
+        names = [n for n in self.groups[cat] if n in fx.SPATIAL]
+        per = 3
+        for i in range(0, len(names), per):
+            r = tk.Frame(self.fxbox, bg=PANEL)
+            r.pack(fill="x", pady=2)
+            for name in names[i:i + per]:
+                b = mkbtn(r, name, lambda x=name: self.start_fx(x))
+                b.config(padx=2, font=FONT_L)
+                b.pack(side="left", expand=True, fill="x", padx=2)
+                self.fxbtns[name] = b
+                setbtn(b, name == self.effect)
 
     # ---------- selection
 
@@ -522,16 +633,24 @@ class App:
     # ---------- animation
 
     def start_fx(self, name):
-        for n, b in self.fxbtns.items():
-            setbtn(b, n == name)
+        for n, b in list(self.fxbtns.items()):
+            try:
+                setbtn(b, n == name)
+            except tk.TclError:
+                self.fxbtns.pop(n, None)   # button belonged to another category
         self.effect = name
+        self.palette_name = self.palettes.get(name, self.palette_name)
+        self.draw_palette()
         self.t0 = time.monotonic()
         self.frames = 0
         self.say(f"animating: {name}")
 
     def stop_fx(self):
-        for b in self.fxbtns.values():
-            setbtn(b, False)
+        for n, b in list(self.fxbtns.items()):
+            try:
+                setbtn(b, False)
+            except tk.TclError:
+                self.fxbtns.pop(n, None)
         self.effect = None
         self.say("animation stopped")
 
@@ -566,8 +685,9 @@ class App:
             if self.effect:
                 fn = fx.SPATIAL[self.effect]
                 t = (time.monotonic() - self.t0) * self.speed.get()
+                pal = self.active_palette()
                 for r in self.leds:
-                    self.set_led(r, fn(r["nx"], r["ny"], t, fx.SYNTHWAVE))
+                    self.set_led(r, fn(r["nx"], r["ny"], t, pal))
                 self.frames += 1
                 if self.frames % 30 == 0:
                     self.say(f"{self.effect}: {self.frames} frames, t={t:.1f}s"

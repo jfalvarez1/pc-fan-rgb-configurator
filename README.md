@@ -353,17 +353,26 @@ giving all 132 LEDs a normalised (x, y) in the case. Effects are computed from
 PHYSICAL POSITION, not LED index - the old index-based wave scrambled at every
 fan boundary.
 
-23 effects in `rgb_effects.SPATIAL`. Families follow the conventions the LED
-community has settled on - WLED's 180+ effect list is the de-facto reference:
+35 effects in `rgb_effects.SPATIAL`, grouped for the UI in `EFFECT_GROUPS`.
+Families follow the conventions the LED community has settled on - WLED's
+180+ effect list is the de-facto reference:
 
-    directional  wave, wave > < ^ v
-    flowing      radial, spiral, plasma, aurora
-    classics     matrix, scanner (Larson), theater chase, meteor, comet
-    scattered    rain, twinkle, confetti, juggle
-    other        wipe, lightning, fire, breathe, pulse
+    Waves    wave, wave > < ^ v, gradient
+    Flow     radial, spiral, plasma, aurora, ripple, snake
+    Classic  matrix, scanner (Larson), theater chase, meteor, comet, chaser
+    Fill     concentric, fill, stack, wipe, bounce, starburst
+    Scatter  rain, twinkle, confetti, juggle, strobe, lightning
+    Glow     breathe, pulse, split, spectrum, fire
 
-`EFFECT_ORDER` is the UI ordering. The daemon cycles a configurable subset
-(`WAVE_CYCLE`, 90 s each).
+23 flat buttons was a wall of options AND made the panel taller than the
+window. One category is shown at a time in a fixed-height holder, so the panel
+stays the same height however many effects exist, and the window now sizes
+itself to its content instead of needing a manual resize.
+
+PALETTES holds 12 named palettes plus a custom editor, and the choice is
+remembered PER EFFECT. A few effects (matrix, fire, lightning) are
+intrinsically coloured and ignore it - the UI says so rather than appearing
+broken.
 
 Randomness is HASHED FROM POSITION, never `random()` - an LED must produce the
 same value every frame or the effect flickers instead of animating.

@@ -66,9 +66,9 @@ BTN_HOV = "#2f3949"
 LED_OFF      = "#242c3a"
 LED_OFF_EDGE = "#39445a"
 
-FONT   = ("Segoe UI", 9)
-FONT_H = ("Segoe UI", 8, "bold")
-FONT_L = ("Segoe UI", 8)
+FONT   = ("Segoe UI", 11)
+FONT_H = ("Segoe UI", 9, "bold")
+FONT_L = ("Segoe UI", 10)
 
 
 def mkbtn(parent, text, cmd, kind="normal"):
@@ -76,7 +76,7 @@ def mkbtn(parent, text, cmd, kind="normal"):
     bg = {"normal": BTN, "accent": ACCENT, "ghost": PANEL}[kind]
     b = tk.Label(parent, text=text, bg=bg,
                  fg="#ffffff" if kind == "accent" else INK,
-                 font=FONT, padx=10, pady=6, cursor="hand2",
+                 font=FONT, padx=12, pady=9, cursor="hand2",
                  highlightthickness=1,
                  highlightbackground=ACCENT if kind == "accent" else LINE)
     b._bg = bg
@@ -249,7 +249,7 @@ class App:
                             highlightthickness=0)
         self.cv.pack(side="left", fill="both", expand=True,
                      padx=(10, 6), pady=10)
-        side = tk.Frame(wrap, bg=PANEL, width=300)
+        side = tk.Frame(wrap, bg=PANEL, width=360)
         side.pack(side="right", fill="y", padx=(0, 10), pady=10)
         side.pack_propagate(False)
 
@@ -273,22 +273,22 @@ class App:
     def _build_case(self):
         c = self.cv
         c.create_rectangle(30, 30, W - 30, H - 30, outline=LINE, width=2)
-        c.create_line(190, 30, 190, H - 30, fill="#212736", dash=(6, 6))
-        c.create_rectangle(250, 405, 585, 470, outline=LINE, fill=CARD)
-        c.create_text(272, 458, text="RTX 5090", fill=MUTED, font=FONT_L,
+        c.create_line(262, 30, 262, H - 30, fill="#212736", dash=(6, 6))
+        c.create_rectangle(345, 560, 808, 650, outline=LINE, fill=CARD)
+        c.create_text(372, 636, text="RTX 5090", fill=MUTED, font=FONT_L,
                       anchor="w")
-        c.create_text(430, 46, text="TOP - radiator exhaust",
+        c.create_text(594, 52, text="TOP - radiator exhaust",
                       fill="#5c6577", font=FONT_L)
-        c.create_text(400, H - 46, text="BOTTOM - F420 intake",
+        c.create_text(552, H - 52, text="BOTTOM - F420 intake",
                       fill="#5c6577", font=FONT_L)
-        c.create_text(W - 46, 315, text="SIDE - F360 intake",
+        c.create_text(W - 52, 435, text="SIDE - F360 intake",
                       fill="#5c6577", font=FONT_L, angle=90)
-        c.create_text(110, 48, text="cable chamber", fill="#5c6577",
+        c.create_text(152, 54, text="cable chamber", fill="#5c6577",
                       font=FONT_L)
 
         for el, i, nx, ny in case_layout.led_positions():
             x, y = case_layout._ring_xy(el, i)
-            r = 6.0 if el["count"] <= 12 else 5.0
+            r = 8.5 if el["count"] <= 12 else 7.0
             item = c.create_oval(x - r, y - r, x + r, y + r,
                                  fill=LED_OFF, outline=LED_OFF_EDGE, width=1)
             rec = {"el": el, "i": i, "x": x, "y": y, "nx": nx, "ny": ny,
@@ -301,11 +301,11 @@ class App:
             el = recs[0]["el"]
             kind = el.get("kind", "fan")
             if kind == "strip_v":
-                lx, ly = el["x"], el["y"] + el["count"] * 7.5 + 20
+                lx, ly = el["x"], el["y"] + el["count"] * 10.5 + 26
             elif kind == "strip_h":
-                lx, ly = el["x"], el["y"] - 20
+                lx, ly = el["x"], el["y"] - 28
             else:
-                lx, ly = el["x"], el["y"] + (el.get("r") or 30) + 20
+                lx, ly = el["x"], el["y"] + (el.get("r") or 30) + 26
             c.create_text(lx, ly, text=el["label"], fill=MUTED, font=FONT_L)
 
     # ---------- panel
@@ -321,9 +321,9 @@ class App:
             return f
 
         tk.Label(p, text="LED STUDIO", bg=PANEL, fg=INK,
-                 font=("Segoe UI Semibold", 12), anchor="w"
+                 font=("Segoe UI Semibold", 15), anchor="w"
                  ).pack(fill="x", padx=16, pady=(16, 0))
-        tk.Label(p, text="132 LEDs in 15 runs", bg=PANEL, fg=MUTED,
+        tk.Label(p, text=f"132 LEDs · 15 runs · {len(fx.SPATIAL)} effects", bg=PANEL, fg=MUTED,
                  font=FONT_L, anchor="w").pack(fill="x", padx=16)
 
         head("HARDWARE")
@@ -344,7 +344,7 @@ class App:
         head("COLOUR")
         sw = row()
         for h in SWATCHES:
-            s = tk.Frame(sw, bg=h, width=26, height=26, cursor="hand2",
+            s = tk.Frame(sw, bg=h, width=34, height=34, cursor="hand2",
                          highlightthickness=1, highlightbackground=LINE)
             s.pack(side="left", expand=True, padx=1)
             s.pack_propagate(False)
@@ -359,11 +359,16 @@ class App:
               ).pack(fill="x", padx=16, pady=2)
 
         head("ANIMATIONS")
-        names = sorted(fx.SPATIAL)
-        for i in range(0, len(names), 2):
+        # EFFECT_ORDER groups them sensibly: directional waves, then the
+        # classics (matrix, scanner, chase, meteor, twinkle, ...)
+        names = getattr(fx, "EFFECT_ORDER", sorted(fx.SPATIAL))
+        names = [n for n in names if n in fx.SPATIAL]
+        per = 3
+        for i in range(0, len(names), per):
             r = row()
-            for name in names[i:i + 2]:
+            for name in names[i:i + per]:
                 b = mkbtn(r, name, lambda x=name: self.start_fx(x))
+                b.config(padx=4, font=FONT_L)
                 b.pack(side="left", expand=True, fill="x", padx=2)
                 self.fxbtns[name] = b
 

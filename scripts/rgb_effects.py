@@ -316,3 +316,203 @@ SPATIAL = {
     "breathe": fx_breathe,
     "fire": fx_fire,
 }
+
+
+# ===========================================================================
+# EXPANDED EFFECT LIBRARY
+#
+# Effect families follow the conventions the LED community has settled on
+# (WLED's 180+ effect list is the de-facto reference): directional waves,
+# scanner/Larson, theater chase, matrix rain, twinkle, confetti, juggle,
+# meteor, wipe, lightning, aurora.
+#
+# Same signature throughout: f(nx, ny, t, palette) -> (r, g, b), driven by
+# PHYSICAL position so everything sweeps the real case correctly.
+#
+# Randomness is hashed from position, never random() - each LED must produce
+# the same value every frame or the effect flickers instead of animating.
+# ===========================================================================
+
+
+def _hash(x, y=0.0, z=0.0):
+    """Deterministic 0..1 noise from coordinates (GLSL-style)."""
+    n = math.sin(x * 127.1 + y * 311.7 + z * 74.7) * 43758.5453
+    return n - math.floor(n)
+
+
+def _dir_wave(nx, ny, t, palette, dx, dy, speed=0.16, cycles=1.3):
+    proj = nx * dx + ny * dy
+    return gamma(cyclic_gradient(palette, proj * cycles + t * speed))
+
+
+def fx_wave_right(nx, ny, t, palette):
+    """Sweeps left -> right."""
+    return _dir_wave(nx, ny, t, palette, -1.0, 0.0)
+
+
+def fx_wave_left(nx, ny, t, palette):
+    """Sweeps right -> left."""
+    return _dir_wave(nx, ny, t, palette, 1.0, 0.0)
+
+
+def fx_wave_up(nx, ny, t, palette):
+    """Sweeps bottom -> top."""
+    return _dir_wave(nx, ny, t, palette, 0.0, 1.0)
+
+
+def fx_wave_down(nx, ny, t, palette):
+    """Sweeps top -> bottom."""
+    return _dir_wave(nx, ny, t, palette, 0.0, -1.0)
+
+
+def fx_matrix(nx, ny, t, palette, speed=0.5, cols=9.0, tail=0.34):
+    """Digital rain: green columns falling, each with a white-hot head."""
+    col = math.floor(nx * cols)
+    rate = 0.6 + _hash(col, 2.3) * 0.9
+    head = _wrap(t * speed * rate + _hash(col, 7.7))
+    d = _wrap(ny - head)
+    if d > tail:
+        return (0, 0, 0)
+    f = 1.0 - d / tail
+    if d < 0.035:                      # the leading glyph
+        return (200, 255, 210)
+    g = int(255 * f ** 1.6)
+    return (int(g * 0.15), g, int(g * 0.30))
+
+
+def fx_scanner(nx, ny, t, palette, speed=0.45, width=0.16):
+    """Larson scanner - a bar sweeping side to side with a fading trail."""
+    pos = 0.5 - 0.5 * math.cos(t * speed * math.tau)
+    d = abs(nx - pos)
+    b = max(0.0, 1.0 - d / width) ** 2
+    base = cyclic_gradient(palette, _wrap(t * 0.05))
+    return tuple(max(0, min(255, round(c * b))) for c in gamma(base))
+
+
+def fx_theater(nx, ny, t, palette, speed=3.0, groups=14.0):
+    """Theater chase - every third LED lit, marching along."""
+    idx = math.floor(nx * groups + ny * 2.0)
+    on = (idx - math.floor(t * speed)) % 3 == 0
+    if not on:
+        return (0, 0, 0)
+    return gamma(cyclic_gradient(palette, _wrap(idx / groups * 0.5 + t * 0.05)))
+
+
+def fx_twinkle(nx, ny, t, palette, speed=0.55, density=0.30):
+    """Random LEDs fading up and down independently."""
+    seed = _hash(nx * 97.0, ny * 61.0)
+    if seed > density:
+        return (0, 0, 0)
+    phase = _wrap(t * speed * (0.5 + seed * 2.0) + seed * 9.7)
+    b = math.sin(phase * math.pi) ** 2
+    return tuple(max(0, min(255, round(c * b)))
+                 for c in gamma(cyclic_gradient(palette, seed)))
+
+
+def fx_confetti(nx, ny, t, palette, speed=1.6):
+    """Coloured pops appearing at random and fading out."""
+    seed = _hash(nx * 131.0, ny * 71.0)
+    cycle = math.floor(t * speed + seed * 5.0)
+    if _hash(seed * 33.0, cycle) > 0.22:
+        return (0, 0, 0)
+    f = 1.0 - _wrap(t * speed + seed * 5.0)
+    return tuple(max(0, min(255, round(c * f * f)))
+                 for c in gamma(cyclic_gradient(palette,
+                                                _hash(cycle, seed * 17.0))))
+
+
+def fx_juggle(nx, ny, t, palette, dots=5, width=0.11):
+    """Several dots crossing the case at different speeds."""
+    best, colour = 0.0, (0, 0, 0)
+    for k in range(dots):
+        speed = 0.20 + k * 0.075
+        pos = 0.5 - 0.5 * math.cos(t * speed * math.tau + k)
+        d = math.hypot(nx - pos, ny - (0.5 - 0.5 * math.sin(t * speed * 1.7 + k)))
+        b = max(0.0, 1.0 - d / width) ** 2
+        if b > best:
+            best, colour = b, cyclic_gradient(palette, k / dots)
+    return tuple(max(0, min(255, round(c * best))) for c in gamma(colour))
+
+
+def fx_meteor(nx, ny, t, palette, speed=0.4, tail=0.30):
+    """A bright head falling with a decaying trail."""
+    head = _wrap(t * speed)
+    d = _wrap(ny - head)
+    if d > tail:
+        return (0, 0, 0)
+    f = (1.0 - d / tail) ** 1.8
+    base = cyclic_gradient(palette, head)
+    if d < 0.03:
+        base = tuple(min(255, c + 90) for c in base)
+    return tuple(max(0, min(255, round(c * f))) for c in gamma(base))
+
+
+def fx_wipe(nx, ny, t, palette, speed=0.28):
+    """A colour sweeping in and filling, then the next colour."""
+    cycle = t * speed
+    edge = _wrap(cycle)
+    n = len(palette)
+    i = int(cycle) % n
+    cur, prev = palette[i], palette[(i - 1) % n]
+    return gamma(cur if nx <= edge else prev)
+
+
+def fx_lightning(nx, ny, t, palette, rate=1.1):
+    """Occasional bright strikes over a dim base."""
+    strike = math.floor(t * rate)
+    if _hash(strike, 3.1) > 0.35:
+        return (6, 8, 16)
+    band = _hash(strike, 8.8)
+    if abs(nx - band) > 0.22 + _hash(strike, 1.4) * 0.2:
+        return (6, 8, 16)
+    f = 1.0 - _wrap(t * rate)
+    v = int(255 * f ** 3)
+    return (v, v, min(255, int(v * 1.05)))
+
+
+def fx_aurora(nx, ny, t, palette, speed=0.09):
+    """Soft shifting curtains."""
+    v = (math.sin(nx * 2.1 + t * speed * 2.0)
+         + math.sin(ny * 1.7 - t * speed * 1.3)
+         + math.sin((nx * 1.3 + ny * 0.9) * 2.4 + t * speed))
+    b = 0.35 + 0.65 * (0.5 + 0.5 * math.sin(ny * 3.0 + t * speed * 1.7))
+    base = cyclic_gradient(palette, _wrap(v / 6 + 0.5))
+    return tuple(max(0, min(255, round(c * b))) for c in gamma(base))
+
+
+def fx_pulse(nx, ny, t, palette, speed=0.55):
+    """Heartbeat - a double thump."""
+    p = _wrap(t * speed)
+    b = (math.exp(-((p - 0.10) ** 2) / 0.0016)
+         + 0.65 * math.exp(-((p - 0.26) ** 2) / 0.0016))
+    b = min(1.0, 0.10 + b)
+    return tuple(max(0, min(255, round(c * b)))
+                 for c in gamma(cyclic_gradient(palette, _wrap(t * 0.04))))
+
+
+SPATIAL.update({
+    "wave >": fx_wave_right,
+    "wave <": fx_wave_left,
+    "wave ^": fx_wave_up,
+    "wave v": fx_wave_down,
+    "matrix": fx_matrix,
+    "scanner": fx_scanner,
+    "theater": fx_theater,
+    "twinkle": fx_twinkle,
+    "confetti": fx_confetti,
+    "juggle": fx_juggle,
+    "meteor": fx_meteor,
+    "wipe": fx_wipe,
+    "lightning": fx_lightning,
+    "aurora": fx_aurora,
+    "pulse": fx_pulse,
+})
+
+# Order used by the UI: directional waves first, then the classics.
+EFFECT_ORDER = [
+    "wave", "wave >", "wave <", "wave ^", "wave v",
+    "radial", "spiral", "plasma", "aurora",
+    "matrix", "scanner", "theater", "meteor", "comet",
+    "rain", "twinkle", "confetti", "juggle",
+    "wipe", "lightning", "fire", "breathe", "pulse",
+]

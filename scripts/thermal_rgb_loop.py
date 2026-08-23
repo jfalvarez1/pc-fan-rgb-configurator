@@ -146,7 +146,7 @@ RGB_MODE = "auto"
 #   wave radial spiral comet rain plasma breathe fire
 WAVE_EFFECT = "wave"
 # Cycle through several instead of sitting on one. Empty list = no cycling.
-WAVE_CYCLE = ["wave", "radial", "plasma", "spiral"]
+WAVE_CYCLE = ["wave", "aurora", "plasma", "radial", "spiral", "matrix"]
 WAVE_CYCLE_SECONDS = 90.0
 
 # What counts as "gaming" for auto mode. Thresholds are asymmetric on purpose:

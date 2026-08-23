@@ -29,65 +29,65 @@ LAYOUT = [
     # ---- top: Arctic 360 radiator (exhaust) + pump, all on mobo header 1
     {"id": "rad_l",    "label": "Radiator L",        "device": "PRIME",
      "zone": "Aura Addressable 1", "start": 36, "count": 12,
-     "x": 300, "y": 105, "r": 52, "kind": "fan", "rot": 90, "vflip": True},
+     "x": 414, "y": 145, "r": 62, "kind": "fan", "rot": 90, "vflip": True},
     {"id": "rad_m",    "label": "Radiator M",        "device": "PRIME",
      "zone": "Aura Addressable 1", "start": 24, "count": 12,
-     "x": 430, "y": 105, "r": 52, "kind": "fan", "rot": 90, "vflip": True},
+     "x": 593, "y": 145, "r": 62, "kind": "fan", "rot": 90, "vflip": True},
     {"id": "rad_r",    "label": "Radiator R",        "device": "PRIME",
      "zone": "Aura Addressable 1", "start": 12, "count": 12,
-     "x": 560, "y": 105, "r": 52, "kind": "fan", "rot": 90, "vflip": True},
+     "x": 773, "y": 145, "r": 62, "kind": "fan", "rot": 90, "vflip": True},
     {"id": "pump",     "label": "Arctic pump",       "device": "PRIME",
      "zone": "Aura Addressable 1", "start": 0,  "count": 12,
-     "x": 300, "y": 290, "r": 42, "kind": "pump",
+     "x": 414, "y": 400, "r": 50, "kind": "pump",
      "flip": True, "vflip": True},
 
     # ---- RAM: vertical sticks, to the RIGHT of the pump
     {"id": "ram0",     "label": "RAM 1",             "device": "Corsair",
      "zone": "Corsair DRAM", "start": 0, "count": 10, "dev_index": 0,
-     "x": 424, "y": 290, "r": 22, "kind": "strip_v"},
+     "x": 585, "y": 400, "r": 26, "kind": "strip_v"},
     {"id": "ram1",     "label": "RAM 2",             "device": "Corsair",
      "zone": "Corsair DRAM", "start": 0, "count": 10, "dev_index": 1,
-     "x": 466, "y": 290, "r": 22, "kind": "strip_v"},
+     "x": 643, "y": 400, "r": 26, "kind": "strip_v"},
 
     # ---- rear exhaust, LEFT side
     {"id": "rear",     "label": "Rear exhaust",      "device": "NZXT",
      "zone": "Hue 2 Channel 3", "start": 0,  "count": 8,
-     "x": 118, "y": 268, "r": 46, "kind": "fan", "rot": -45},
+     "x": 163, "y": 370, "r": 55, "kind": "fan", "rot": -45},
 
     # ---- GPU: vertically mounted. The lit run sits toward the RIGHT end of
     # the card, so text then logo are placed right-adjusted, not centred.
     {"id": "gpu_text", "label": "ZOTAC text",        "device": "PRIME",
      "zone": "Aura Addressable 2", "start": 0, "count": 5,
-     "x": 452, "y": 434, "r": 0, "kind": "strip_h"},
+     "x": 624, "y": 599, "r": 0, "kind": "strip_h"},
     {"id": "gpu_logo", "label": "logo",              "device": "PRIME",
      "zone": "Aura Addressable 2", "start": 5, "count": 3,
-     "x": 528, "y": 434, "r": 0, "kind": "strip_h"},
+     "x": 729, "y": 599, "r": 0, "kind": "strip_h"},
 
     # ---- side intake F360 (the user calls these the front fans), RIGHT side
     {"id": "side3",    "label": "Side F360 top",     "device": "NZXT",
      "zone": "Hue 2 Channel 1", "start": 16, "count": 8,
-     "x": 706, "y": 175, "r": 50, "kind": "fan", "flip": True},
+     "x": 974, "y": 241, "r": 60, "kind": "fan", "flip": True},
     {"id": "side2",    "label": "Side F360 mid",     "device": "NZXT",
      "zone": "Hue 2 Channel 1", "start": 8,  "count": 8,
-     "x": 706, "y": 315, "r": 50, "kind": "fan", "flip": True},
+     "x": 974, "y": 435, "r": 60, "kind": "fan", "flip": True},
     {"id": "side1",    "label": "Side F360 bottom",  "device": "NZXT",
      "zone": "Hue 2 Channel 1", "start": 0,  "count": 8,
-     "x": 706, "y": 455, "r": 50, "kind": "fan", "flip": True},
+     "x": 974, "y": 628, "r": 60, "kind": "fan", "flip": True},
 
     # ---- bottom intake F420
     {"id": "bot1",     "label": "Bottom F420 L",     "device": "NZXT",
      "zone": "Hue 2 Channel 2", "start": 0,  "count": 8,
-     "x": 250, "y": 580, "r": 54, "kind": "fan", "rot": -90, "flip": True},
+     "x": 345, "y": 800, "r": 65, "kind": "fan", "rot": -90, "flip": True},
     {"id": "bot2",     "label": "Bottom F420 M",     "device": "NZXT",
      "zone": "Hue 2 Channel 2", "start": 8,  "count": 8,
-     "x": 400, "y": 580, "r": 54, "kind": "fan", "rot": -90, "flip": True},
+     "x": 552, "y": 800, "r": 65, "kind": "fan", "rot": -90, "flip": True},
     {"id": "bot3",     "label": "Bottom F420 R",     "device": "NZXT",
      "zone": "Hue 2 Channel 2", "start": 16, "count": 8,
-     "x": 550, "y": 580, "r": 54, "kind": "fan", "rot": -90, "flip": True},
+     "x": 759, "y": 800, "r": 65, "kind": "fan", "rot": -90, "flip": True},
 ]
 
 # canvas the coordinates above are expressed in
-CANVAS_W, CANVAS_H = 820.0, 680.0
+CANVAS_W, CANVAS_H = 1130.0, 940.0
 
 
 def _ring_xy(el, i):
@@ -95,11 +95,11 @@ def _ring_xy(el, i):
     kind = el.get("kind", "fan")
     n = el["count"]
     if kind == "strip_v":
-        h = n * 15.0
-        return el["x"], el["y"] - h / 2 + 7 + i * 15
+        h = n * 21.0
+        return el["x"], el["y"] - h / 2 + 10 + i * 21
     if kind == "strip_h":
-        w = n * 15.0
-        return el["x"] - w / 2 + 7.5 + i * 15, el["y"]
+        w = n * 21.0
+        return el["x"] - w / 2 + 10.5 + i * 21, el["y"]
     a = (i / n) * math.tau - math.pi / 2 + math.radians(el.get("rot", 0))
     if el.get("flip"):
         a = math.pi - a

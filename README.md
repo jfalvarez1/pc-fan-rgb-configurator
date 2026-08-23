@@ -353,9 +353,20 @@ giving all 132 LEDs a normalised (x, y) in the case. Effects are computed from
 PHYSICAL POSITION, not LED index - the old index-based wave scrambled at every
 fan boundary.
 
-Eight effects in `rgb_effects.SPATIAL`: wave, radial, spiral, comet, rain,
-plasma, breathe, fire. The daemon cycles through a configurable subset
-(`WAVE_CYCLE`, default 90 s each).
+23 effects in `rgb_effects.SPATIAL`. Families follow the conventions the LED
+community has settled on - WLED's 180+ effect list is the de-facto reference:
+
+    directional  wave, wave > < ^ v
+    flowing      radial, spiral, plasma, aurora
+    classics     matrix, scanner (Larson), theater chase, meteor, comet
+    scattered    rain, twinkle, confetti, juggle
+    other        wipe, lightning, fire, breathe, pulse
+
+`EFFECT_ORDER` is the UI ordering. The daemon cycles a configurable subset
+(`WAVE_CYCLE`, 90 s each).
+
+Randomness is HASHED FROM POSITION, never `random()` - an LED must produce the
+same value every frame or the effect flickers instead of animating.
 
 Preview them live:
 

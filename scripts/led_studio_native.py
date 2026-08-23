@@ -421,8 +421,13 @@ class App:
             b.pack(side="left", expand=True, fill="x", padx=1)
             self.catbtns[cat] = b
 
-        # fixed-height holder so switching category never resizes the panel
-        self.fxbox = tk.Frame(p, bg=PANEL, height=96)
+        # Fixed-height holder so switching category never resizes the panel -
+        # but sized to the LARGEST category, not a guess. It was hardcoded to
+        # 96px (two rows) and the eight-effect Fill group clipped its last row.
+        per_row = 3
+        rows_needed = max((len(v) + per_row - 1) // per_row
+                          for v in self.groups.values())
+        self.fxbox = tk.Frame(p, bg=PANEL, height=rows_needed * 37 + 6)
         self.fxbox.pack(fill="x", padx=16, pady=(4, 0))
         self.fxbox.pack_propagate(False)
         self.show_cat(next(iter(self.groups)))

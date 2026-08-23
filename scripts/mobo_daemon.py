@@ -25,6 +25,8 @@ import argparse
 import atexit
 import ctypes
 import json
+
+import fan_tuning
 import os
 import pathlib
 import sys
@@ -250,8 +252,10 @@ def main():
                     f"[{s.get('rad_mode')}]")
 
             if smoothed is not None:
+                rad_trim = fan_tuning.load_trims().get("rad", 0.0)
                 target = max(RAD_MIN_DUTY,
-                             min(100, round(interpolate(RAD_CURVE, smoothed))))
+                             min(100, round(interpolate(RAD_CURVE, smoothed)
+                                            + rad_trim)))
                 change = False
                 if commanded is None:
                     change = True

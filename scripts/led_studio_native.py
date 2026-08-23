@@ -38,6 +38,8 @@ import tkinter as tk
 from tkinter import colorchooser, ttk
 
 import case_layout
+import fan_panel
+import fan_side
 import fx_layers
 import openrgb_boot
 import rgb_effects as fx
@@ -269,10 +271,25 @@ class App:
 
         wrap = tk.Frame(root, bg=BG)
         wrap.pack(fill="both", expand=True)
-        self.cv = tk.Canvas(wrap, width=W, height=H, bg=BG,
+        left = tk.Frame(wrap, bg=BG)
+        left.pack(side="left", fill="both", expand=True, padx=(10, 6), pady=10)
+        tabs = tk.Frame(left, bg=BG)
+        tabs.pack(fill="x", pady=(0, 6))
+        self.tabbtns = {}
+        for _n in ("Lighting", "Fans"):
+            _b = mkbtn(tabs, _n, lambda n=_n: self.show_tab(n))
+            _b.pack(side="left", padx=(0, 6))
+            self.tabbtns[_n] = _b
+        self.stack = tk.Frame(left, bg=BG)
+        self.stack.pack(fill="both", expand=True)
+        self.cv = tk.Canvas(self.stack, width=W, height=H, bg=BG,
                             highlightthickness=0)
-        self.cv.pack(side="left", fill="both", expand=True,
-                     padx=(10, 6), pady=10)
+        self.cv.pack(fill="both", expand=True)
+        self.fan_cv = tk.Canvas(self.stack, width=W, height=H, bg=BG,
+                                highlightthickness=0)
+        self.fans = fan_panel.FanPanel(self.fan_cv, W, H)
+        self.tab = "Lighting"
+        self.fan_ticks = 0
         side = tk.Frame(wrap, bg=PANEL, width=360)
         side.pack(side="right", fill="y", padx=(0, 10), pady=10)
         side.pack_propagate(False)
@@ -301,9 +318,16 @@ class App:
         pcv.bind("<Enter>", lambda e: pcv.bind_all("<MouseWheel>", _wheel))
         pcv.bind("<Leave>", lambda e: pcv.unbind_all("<MouseWheel>"))
         self.panel_inner = inner
+        # Each tab owns its side panel. The lighting controls do not apply to
+        # fans, so they are hidden rather than left there to be clicked.
+        self.panel_light = tk.Frame(inner, bg=PANEL)
+        self.panel_light.pack(fill="both", expand=True)
+        self.panel_fan = tk.Frame(inner, bg=PANEL)
 
         self._build_case()
-        self._build_panel(inner)
+        self._build_panel(self.panel_light)
+        self.fan_side = fan_side.FanSidePanel(self.panel_fan, PANEL,
+                                              on_change=self.say)
 
         self.status = tk.Label(root, text="starting...", anchor="w",
                                bg=BG, fg=MUTED, font=FONT)
@@ -317,7 +341,7 @@ class App:
         # panel simply overflowed off the bottom, needing a manual resize.
         root.update_idletasks()
         want_w = W + 360 + 40
-        want_h = max(H + 60, inner.winfo_reqheight() + 60)
+        want_h = max(H + 110, inner.winfo_reqheight() + 60)
         sw = root.winfo_screenwidth()
         sh = root.winfo_screenheight() - 60
         w, h = min(want_w, sw - 40), min(want_h, sh)
@@ -327,6 +351,7 @@ class App:
         self.pal_strip.bind("<Configure>", lambda e: self.draw_palette())
         root.after(200, self.draw_palette)
         self.refresh_layer_list()
+        self.show_tab("Lighting")
 
         # Layer keys. Bound on the root so they work wherever focus sits, but
         # only act in layer mode - otherwise Delete would fire while the user
@@ -496,7 +521,7 @@ class App:
         tk.Label(p, text="speed", bg=PANEL, fg=MUTED, font=FONT_L, anchor="w"
                  ).pack(fill="x", padx=16, pady=(10, 0))
         self.speed = tk.DoubleVar(value=1.0)
-        tk.Scale(p, from_=0.2, to=3.0, resolution=0.1, orient="horizontal",
+        tk.Scale(p, from_=0.1, to=8.0, resolution=0.1, orient="horizontal",
                  variable=self.speed, bg=PANEL, fg=INK, troughcolor=BTN,
                  highlightthickness=0, bd=0, sliderrelief="flat",
                  activebackground=ACCENT, font=FONT_L
@@ -1240,6 +1265,11 @@ class App:
         except Exception as exc:
             self.say(f"animation error: {type(exc).__name__}: {exc}")
             self.effect = None
+        if self.tab == "Fans":
+            self.fan_ticks += 1
+            if self.fan_ticks % 30 == 0:
+                self.refresh_fans()
+
         try:
             while True:
                 kind, payload = self.out.get_nowait()
@@ -1249,11 +1279,45 @@ class App:
             pass
         self.root.after(UI_MS, self.tick)
 
+    def show_tab(self, name):
+        """Swap the left-hand view. The lighting canvas keeps animating either
+        way - the effect loop does not care whether it is on screen."""
+        self.tab = name
+        for n, b in self.tabbtns.items():
+            setbtn(b, n == name)
+        if name == "Fans":
+            self.cv.pack_forget()
+            self.fan_cv.pack(fill="both", expand=True)
+            self.panel_light.pack_forget()
+            self.panel_fan.pack(fill="both", expand=True)
+            fan_side.GPU.start()
+            self.refresh_fans()
+        else:
+            self.fan_cv.pack_forget()
+            self.cv.pack(fill="both", expand=True)
+            self.panel_fan.pack_forget()
+            self.panel_light.pack(fill="both", expand=True)
+
+    def refresh_fans(self):
+        try:
+            notes = self.fans.refresh()
+            self.fan_side.refresh(self.fans.gather())
+        except Exception as exc:
+            self.say(f"fan view error: {type(exc).__name__}: {exc}")
+            return
+        if notes:
+            self.say(f"fans: {notes[0]}"
+                     + (f"  (+{len(notes)-1} more)" if len(notes) > 1 else ""))
+
     def say(self, t):
         self.status.config(text=t)
 
     def close(self):
         self.effect = None
+        try:
+            fan_side.GPU.stop()
+        except Exception:
+            pass
         OVERRIDE.unlink(missing_ok=True)
         self.hw.stop_flag.set()
         self.root.after(300, self.root.destroy)

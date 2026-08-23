@@ -1,0 +1,337 @@
+# LED Studio — User Guide
+
+Everything this stack does, and how to drive it. For *why* it is built the way
+it is — the hardware quirks, the measurements, the bugs — see `README.md`.
+
+---
+
+## Contents
+
+- [The three programs](#the-three-programs)
+- [Starting it](#starting-it)
+- [The Lighting tab](#the-lighting-tab)
+  - [Selecting LEDs](#selecting-leds)
+  - [Painting colours](#painting-colours)
+  - [Running an effect](#running-an-effect)
+  - [Palettes](#palettes)
+  - [Effect reference](#effect-reference)
+  - [VU meters](#vu-meters)
+- [Effect layers](#effect-layers)
+  - [What blend does](#what-blend-does)
+- [The Fans tab](#the-fans-tab)
+  - [Reading a curve chart](#reading-a-curve-chart)
+  - [Curve trim](#curve-trim)
+  - [The pump](#the-pump)
+- [Autostart](#autostart)
+- [Troubleshooting](#troubleshooting)
+- [File reference](#file-reference)
+
+---
+
+## The three programs
+
+| Program | Runs as | Owns | Started by |
+|---|---|---|---|
+| `led_studio_native.py` | you | the editor UI; takes LEDs only while "Take control" is on | you, or the desktop shortcut |
+| `thermal_rgb_loop.py` | you | the 3 NZXT case fans, all LEDs when the editor is not driving | Startup shortcut |
+| `mobo_daemon.py` | **administrator** | AIO pump + radiator fans (motherboard headers) | Scheduled Task at logon |
+
+The elevated daemon needs administrator rights because motherboard fan headers
+are reached through a signed kernel driver. It publishes `sensors.json`; the
+other two read it. That file is the whole bridge between them.
+
+Only one program may own a device at a time. If two try, one silently loses —
+see [Troubleshooting](#troubleshooting).
+
+---
+
+## Starting it
+
+Double-click **LED Studio** (desktop shortcut), or:
+
+```
+pythonw C:\HardwareControl\scripts\led_studio_native.py
+```
+
+OpenRGB is started automatically if it is not already running.
+
+Two buttons at the top of the panel control whether anything reaches hardware:
+
+- **Take control** — takes ownership from `thermal_rgb_loop`, which stands down
+  while the flag file exists. Released automatically when you close the app.
+- **Drive hardware** — actually writes colours. With this off you get a live
+  preview in the window and nothing else. Both must be on to change your case.
+
+---
+
+## The Lighting tab
+
+The canvas is your case seen from the side, plus the keyboard below it. Every
+dot is one addressable LED, in its real physical position.
+
+### Selecting LEDs
+
+| Action | Result |
+|---|---|
+| click an LED | select just that one |
+| click a fan's centre | select the whole fan |
+| shift-click | add to the selection |
+| drag on empty space | rubber-band select |
+| **All / None / Invert** | as named |
+
+Selected LEDs get a white ring.
+
+### Painting colours
+
+Pick a swatch or **Pick…** for the full colour picker, then **Paint** to apply
+it to the selection. **Blank selection** sets it black.
+
+**Brush** mode paints continuously as you drag — no selection needed.
+
+Painted colours are remembered as the *background*: if you then run layers
+without a global effect, the layers composite on top of your painting rather
+than erasing it.
+
+### Running an effect
+
+Effects are grouped into categories — **Waves, Flow, Classic, Fill, Scatter,
+Glow**. Click a category, then an effect. It starts immediately in the preview.
+
+**Speed** scales time for every animation, from 0.1× to 8×.
+
+### Palettes
+
+The strip shows the active palette. `<` and `>` cycle through twelve built-ins
+plus **custom**, and **Edit palette…** opens the colour editor.
+
+Each effect remembers its own palette. A few effects ignore palettes entirely
+because their colours are the point — `matrix` (green), `fire`, `lightning`.
+
+### Effect reference
+
+| Category | Effects |
+|---|---|
+| **Waves** | wave, wave >, wave <, wave ^, wave v, gradient |
+| **Flow** | radial, spiral, plasma, aurora, ripple, snake |
+| **Classic** | matrix, scanner, theater, meteor, comet, chaser |
+| **Fill** | concentric, fill, stack, wipe, bounce, starburst, vu, vu pal |
+| **Scatter** | rain, twinkle, confetti, juggle, strobe, lightning |
+| **Glow** | breathe, pulse, split, spectrum, fire |
+
+`matrix` behaves differently on the keyboard: because that is a real 15×5
+grid, the rain snaps to it — one key wide, falling a row at a time. On fan
+rings, which have no rows or columns, it keeps its smooth spatial form.
+
+### VU meters
+
+`vu` (green→amber→red, like a real meter) and `vu pal` (palette-coloured) are
+driven by whatever Windows is playing, captured from the speaker's loopback.
+
+- **VU bars** — how many frequency bands, 2 to 20.
+- **VU sensitivity** — 0.3× to 3.0×. Content loudness varies enormously; a
+  game sits near the top of the range where a quiet track barely leaves the
+  bottom. Turn it down if the meter is pinned, up if it barely moves.
+
+The label says which source is live: `live audio`, `live audio (silent)`, or
+`SIMULATED (no audio capture)`. A meter that bounces to nothing is worse than
+no meter, so it never leaves this ambiguous.
+
+Levels are measured *relative to the band's own recent range*, so the meter
+keeps moving during steady loud content instead of pinning every bar to the
+top. Lit segments also dim with the level, so the bottom row breathes rather
+than sitting at a constant green.
+
+---
+
+## Effect layers
+
+A layer is a box that applies its effect **only to the LEDs it covers** — the
+same idea as SignalRGB's effect blocks.
+
+Turn on **Layer mode**, then **+ Add**. The canvas now edits boxes rather than
+LEDs:
+
+| Action | Result |
+|---|---|
+| drag inside a box | move it |
+| drag a corner | resize; the opposite corner stays pinned |
+| drag the handle above the top edge | rotate |
+| arrow keys / shift-arrows | nudge 1 px / 10 px |
+| Delete | remove the selected box |
+
+**Changing a layer's effect** — three ways:
+
+1. the **Effect: …** button in the layers section (opens a chooser),
+2. double-click the layer's row in the list,
+3. the normal effect grid — while a layer is selected it retargets to that
+   layer, and says so: the header reads `ANIMATIONS → LAYER 1`.
+
+Layers stack. Later ones paint over earlier ones; **Raise** / **Lower**
+reorder. Each has its own opacity, blend mode and palette.
+
+The effect runs in the box's *own* coordinate space: an LED at the box's
+top-left is the effect's (0,0) and the bottom-right is (1,1). So a wave runs
+across the box wherever you put it and however far you turn it.
+
+### What blend does
+
+Blend decides how a layer's colour combines with whatever is already
+underneath it — the global effect, a lower layer, or your painted background.
+Opacity (`a`) scales the layer first.
+
+| Mode | Formula per channel | Looks like |
+|---|---|---|
+| **normal** | `under × (1−a) + layer × a` | a cross-fade. At 100% opacity the layer replaces what is beneath; at 50% it is half-and-half. This is the one you want by default. |
+| **add** | `under + layer × a`, capped at 255 | light piling on light. Overlaps get brighter and drift toward white. Good for glows and sparks over a dim base; will wash out over a bright one. |
+| **max** | `max(under, layer × a)` per channel | the brighter of the two wins, channel by channel. Overlays without the washing-out that `add` causes — useful when you want a layer to show through only where it is brighter than the background. |
+
+Concrete: layer colour `(200,100,50)` at 50% opacity over a background of
+`(100,0,0)` gives **normal** `(150,50,25)`, **add** `(200,50,25)`, **max**
+`(150,50,25)` — and over black, **normal** and **max** both give `(100,50,25)`
+while **add** gives the same, because there is nothing to add to.
+
+---
+
+## The Fans tab
+
+Switch with the **Fans** tab above the canvas. The lighting controls are
+replaced by fan controls, since none of them apply here.
+
+**Left:** a card per fan showing the curves it actually runs, with the live
+operating point marked. **Right:** live readouts and safe adjustments.
+
+Readouts include CPU Tctl and CCD1, GPU core and VRAM, all six case-fan and
+radiator RPMs, pump duty and RPM, and — from `nvidia-smi` — GPU power against
+its limit, core and memory clocks, utilisation and VRAM used.
+
+Nothing on this tab talks to hardware. It reads the files the daemons publish,
+so it can never fight them for a device.
+
+### Reading a curve chart
+
+X axis is temperature, Y axis is fan duty. Each coloured line is one
+temperature source:
+
+- **cyan** GPU core  **purple** GPU VRAM  **orange** CPU Tctl
+
+Every channel carries one curve *per sensor* and runs at whichever demands the
+most duty — the thick line is the one currently leading, and the white dot is
+where that fan is right now. The dashed grey line is the minimum duty, which no
+curve or trim can go below.
+
+Why per-sensor rather than "hottest sensor wins": 80 °C is hot for a GPU core,
+unremarkable for a 9800X3D and cool for GDDR7. Converting each sensor to a duty
+*first*, then taking the maximum, compares like with like.
+
+### Curve trim
+
+Four sliders shift a whole curve up or down by up to **15 duty points**. They
+apply live — within one poll, no restart.
+
+They deliberately cannot *reshape* a curve. The shapes came from measured
+thermal data (Forza Horizon, matched GPU load, n=555 vs n=329: GPU core
+−3.7 °C, VRAM −4.2 °C, CPU −1.3 °C which was inside the noise), and a
+drag-the-curve editor would make that easy to throw away by accident. The hard
+min/max clamps still apply on top, so no trim can stall a fan.
+
+**Reset trims** returns all four to zero.
+
+### The pump
+
+The pump is a **fixed duty and never a curve** — repeated speed cycling is a
+wear mechanism, and avoiding it is the single biggest durability factor here.
+
+Choose from the measured duty→rpm points:
+
+| duty | rpm | % of max |
+|---|---|---|
+| 40% | 1772 | 63% |
+| 48% | 1971 | 70% |
+| 56% | 2163 | 76% |
+| 64% | 2398 | 85% |
+| 72% | 2733 | 97% |
+| 80% | 2795 | 99% |
+
+The response **saturates early** — everything from 72% up produces ~2750+ rpm,
+so 28 points of duty buy about 80 rpm. The usable range is 40–72%.
+
+Default is **56% → 2163 rpm = 76% of maximum**: inside the usual "keep a pump
+at 60–80% of maximum" guidance, well clear of the low-RPM cavitation that
+actually damages pumps, and below the saturation zone that only adds wear.
+
+That guidance is about **RPM, not duty**. On this pump those are very different
+numbers — reading it as duty would put the pump at 99% of maximum while looking
+conservative.
+
+The pump is **not trimmable**, and the daemon clamps anything below its safety
+floor. Pump changes take effect when `mobo_daemon` restarts.
+
+---
+
+## Autostart
+
+| Component | Mechanism |
+|---|---|
+| `thermal_rgb_loop` | shortcut in the Startup folder |
+| `mobo_daemon` | Scheduled Task at logon, highest privileges |
+| OpenRGB | started on demand by whatever needs it |
+
+The Scheduled Task runs elevated without a UAC prompt because triggering a task
+you own needs no elevation, even though the task itself runs elevated.
+
+---
+
+## Troubleshooting
+
+**A fan or the pump ignores its curve.** The Fans tab flags this directly:
+`pump commanded 56% but hardware reports 25%`. It means another program has
+taken the header. Only one may own it. The usual culprits:
+
+- **FanControl** — writes the same SuperIO chip as `mobo_daemon`. Do not run
+  both. This is the most common cause.
+- **NZXT CAM** — keep it installed (see below) but do not let it autostart.
+- **BIOS Q-Fan** — will reclaim a header if software control is released.
+
+Close the offending program, then restart `mobo_daemon` (elevated).
+
+**Colours do not change.** Check **Take control** and **Drive hardware** are
+both on. If they are, something else owns the LEDs — SignalRGB takes exclusive
+control and cannot coexist with OpenRGB.
+
+**Only 8 LEDs light on an NZXT channel.** The controller stores how many
+accessories are chained per channel, and only CAM can write that. Run CAM once,
+apply any effect, confirm every fan lights, and close it. The setting persists
+with CAM closed and across reboots.
+
+**The keyboard does not respond.** Razer Synapse owns it while running.
+
+**VU meter shows `SIMULATED`.** Audio capture is unavailable — check the
+default playback device exists. The effect still animates, it just is not
+listening to anything.
+
+**An LED stays one colour when everything else changes.** Almost certainly the
+device's own onboard profile, not this software.
+
+---
+
+## File reference
+
+Everything under `C:\HardwareControl\scripts`:
+
+| File | Purpose |
+|---|---|
+| `led_studio_native.py` | the editor |
+| `fan_panel.py` | Fans tab charts |
+| `fan_side.py` | Fans tab controls and readouts |
+| `fan_tuning.py` | curve trim, clamped; read live by both daemons |
+| `rgb_effects.py` | all 37 effects, palettes, VU |
+| `fx_layers.py` | layer geometry — `python fx_layers.py` runs 68 self-tests |
+| `case_layout.py` | physical LED positions, the single source of truth |
+| `thermal_rgb_loop.py` | case fans + LEDs daemon |
+| `mobo_daemon.py` | pump + radiator daemon (elevated) |
+| `audio_levels.py` | speaker loopback capture for the VU meters |
+| `nzxt_util.py` | spaced, verified writes — the NZXT controller drops rapid ones |
+
+State files written at runtime: `sensors.json` (elevated daemon),
+`fan_state.json` (case daemon), `fan_tuning.json` (your trims),
+`pump_config.json` (pump duty + its measured map).

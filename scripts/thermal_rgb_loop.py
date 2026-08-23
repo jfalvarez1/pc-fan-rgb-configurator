@@ -24,6 +24,7 @@ import threading
 import urllib.request
 
 import case_layout
+import fan_tuning
 import nzxt_util
 import openrgb_boot
 import rgb_effects
@@ -903,6 +904,7 @@ def main():
                 line = " ".join(parts2)
 
             # fans: each sensor proposes a duty; the loudest demand wins
+            trims = fan_tuning.load_trims()
             for ch, cfg in FAN_CHANNELS.items():
                 proposals = {}
                 for src, curve in cfg["curves"].items():
@@ -913,7 +915,10 @@ def main():
                     line += f" | {cfg['label']}: no sensors"
                     continue
                 lead = max(proposals, key=proposals.get)
-                target = max(MIN_DUTY, min(MAX_DUTY, round(proposals[lead])))
+                # user trim, already clamped by fan_tuning, then the hard
+                # MIN/MAX clamp - so a trim can never command a stall
+                target = max(MIN_DUTY, min(MAX_DUTY,
+                             round(proposals[lead] + trims.get(ch, 0.0))))
                 current = commanded.get(ch)
 
                 if current is None:

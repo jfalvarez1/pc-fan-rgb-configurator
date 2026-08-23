@@ -4,6 +4,9 @@ Open-source replacement for SignalRGB / NZXT CAM / iCUE on one specific
 machine: fan curves, pump control and per-LED RGB, driven by Python, tuned
 from measured thermal data rather than guesswork.
 
+**[USER_GUIDE.md](USER_GUIDE.md) is the how-to.** This file is the why: the
+hardware quirks, the measurements, and the bugs that produced each decision.
+
 Everything here was derived by probing the actual hardware. Where a number
 appears, it was measured; where something is uncertain, it says so.
 
@@ -25,7 +28,7 @@ appears, it was measured; where something is uncertain, it says so.
 
 | Layer | Owner | Driven by | Elevated? |
 |---|---|---|---|
-| Pump | `mobo_daemon.py` | fixed 56 % → 2170 rpm, never a curve | yes |
+| Pump | `mobo_daemon.py` | fixed 56 % → 2163 rpm, never a curve | yes |
 | Radiator fans | `mobo_daemon.py` | CPU Tctl curve | yes |
 | Case fans ×3 | `thermal_rgb_loop.py` | GPU core + VRAM curves | no |
 | All LEDs | `thermal_rgb_loop.py` | idle dark → synthwave → orange glow | no |
@@ -484,6 +487,34 @@ parameter. And scaling a 0..1 phase by the period coupled gap to speed -
 widening the dark gap between strands also made them fall faster, which is not
 what a gap means. Descent is now in rows per second (`MATRIX_ROWS_PER_SEC`),
 verified constant at 1.6 s to cross across every gap setting.
+
+## Fans tab
+
+`fan_panel.py` draws the curves each fan actually runs; `fan_side.py` is its
+side panel. Read-only on the curves, because their shapes came from measured
+thermal data rather than taste - a drag-the-curve editor would make that easy
+to throw away by accident. What IS adjustable is bounded:
+
+* **curve trim** (`fan_tuning.py`) shifts a whole curve by at most +/-15 duty
+  points, clamped on load AND on save, and the daemons' own MIN/MAX clamps
+  still apply on top - so no trim can command a stall. Both daemons re-read
+  the file every poll, so a trim applies live with no restart.
+* **pump duty** is a pick from the MEASURED duty->rpm map, not a free slider,
+  and the daemon clamps below its safety floor. Not trimmable at all.
+
+Nothing on the tab touches hardware. It reads only the files the daemons
+publish, so the view can never fight a daemon for a device.
+
+### Commanded vs measured
+
+The daemon logs "pump pinned at 56%" and moves on. If something else then
+takes the header, nothing notices - the log still says 56%. Comparing what was
+commanded against what the hardware reports is the only thing that surfaces
+it, so the tab does that comparison on every header and says so plainly.
+
+It caught a live case immediately: pump commanded 56%, hardware at 24.7%
+(1369 rpm - below the 1500 rpm abort floor in `data/pump_map.txt`), because
+FanControl was running and owns the same SuperIO chip.
 
 ## Effect layers
 

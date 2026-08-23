@@ -15,6 +15,8 @@ vertically mounted GPU.
 """
 import json
 import pathlib
+import socket
+import time
 
 import openrgb_boot
 import threading
@@ -105,6 +107,7 @@ class Hardware:
         self.client = None
         self.lock = threading.Lock()
         self.buf = {}      # dev_id -> [(r,g,b)] for every LED on the device
+        self._resolved = {}   # element id -> (device, offset), cached per connection
         self.connect()
 
     def connect(self):
@@ -114,6 +117,7 @@ class Hardware:
         openrgb_boot.ensure_running()
         try:
             from openrgb import OpenRGBClient
+            self._resolved = {}
             self.client = OpenRGBClient(HOST, RGB_PORT, "led-studio")
             sizes = {}
             try:
@@ -148,9 +152,13 @@ class Hardware:
             return False
 
     def resolve(self, el):
-        """Map a layout element to (device, absolute LED offset)."""
+        """Map a layout element to (device, absolute LED offset). Cached -
+        walking every device and zone per element per frame cost ~2 s a call."""
         if self.client is None:
             return None, None
+        hit = self._resolved.get(el["id"])
+        if hit is not None:
+            return hit
         matches = [d for d in self.client.devices
                    if d is not None and getattr(d, "type", None) is not None
                    and el["device"].lower() in d.name.lower()]
@@ -161,12 +169,19 @@ class Hardware:
         off = 0
         for z in dev.zones:
             if el["zone"].lower() in z.name.lower():
-                return dev, off + el["start"]
+                self._resolved[el["id"]] = (dev, off + el["start"])
+                return self._resolved[el["id"]]
             off += len(z.leds)
+        self._resolved[el["id"]] = (None, None)
         return None, None
 
-    def apply(self, colours):
-        """colours: {element_id: [[r,g,b], ...]} - one entry per LED."""
+    def apply(self, colours, stream=False):
+        """colours: {element_id: [[r,g,b], ...]} - one entry per LED.
+
+        stream=True uses fast writes (no wait for a device reply). A blocking
+        write per device costs ~2 s a frame, which buried the animation under
+        a backlog of requests.
+        """
         if self.client is None and not self.connect():
             return {"ok": False, "error": "no OpenRGB connection"}
         from openrgb.utils import RGBColor
@@ -191,7 +206,7 @@ class Hardware:
             for dev_id, dev in touched.items():
                 try:
                     dev.set_colors([RGBColor(*c) for c in self.buf[dev_id]],
-                                   fast=False)
+                                   fast=stream)
                 except Exception as exc:
                     # repr, not str: several openrgb/socket exceptions have an
                     # empty message and reported as "DeviceName: " with nothing
@@ -237,6 +252,10 @@ class Handler(BaseHTTPRequestHandler):
         data = body if isinstance(body, bytes) else body.encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", ctype)
+        # The browser was free to cache led_studio.html, which meant code
+        # changes silently did not reach the page. Never cache anything here.
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
+        self.send_header("Pragma", "no-cache")
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
@@ -244,6 +263,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path in ("/", "/index.html"):
             html = (BASE / "led_studio.html").read_text(encoding="utf-8")
+            stamp = time.strftime("%H:%M:%S",
+                                  time.localtime((BASE / "led_studio.html").stat().st_mtime))
+            html = html.replace("BUILDSTAMP", stamp)
             return self._send(200, html, "text/html; charset=utf-8")
         if self.path == "/api/layout":
             return self._send(200, json.dumps(layout_payload()))
@@ -259,7 +281,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(400, json.dumps({"error": "bad json"}))
 
         if self.path == "/api/apply":
-            return self._send(200, json.dumps(HW.apply(body.get("colours", {}))))
+            return self._send(200, json.dumps(
+                HW.apply(body.get("colours", {}), stream=bool(body.get("stream")))))
         if self.path == "/api/control":
             if body.get("take"):
                 OVERRIDE.write_text("led_studio")
@@ -271,13 +294,37 @@ class Handler(BaseHTTPRequestHandler):
         self._send(404, json.dumps({"error": "not found"}))
 
 
+class _V6Server(ThreadingHTTPServer):
+    address_family = socket.AF_INET6
+
+
+def _serve(server):
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+
+
 if __name__ == "__main__":
     if not openrgb_boot.sdk_up():
         print("OpenRGB is not running - starting it...")
         openrgb_boot.ensure_running()
         HW.connect()
-    srv = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
-    url = f"http://localhost:{PORT}"
+
+    # Listen on BOTH loopback stacks.
+    #
+    # "localhost" resolves to ::1 first on Windows 11. Binding only
+    # 127.0.0.1 meant every request stalled ~2 s on the IPv6 attempt before
+    # falling back - measured 2050 ms vs 7.8 ms. That latency is what made
+    # animations freeze after a single frame: the browser queued frames
+    # faster than the server could answer them.
+    servers = []
+    try:
+        servers.append(_V6Server(("::1", PORT), Handler))
+    except OSError as exc:
+        print(f"(no IPv6 loopback: {exc})")
+    servers.append(ThreadingHTTPServer(("127.0.0.1", PORT), Handler))
+    for sv in servers:
+        _serve(sv)
+    srv = servers[-1]
+    url = f"http://127.0.0.1:{PORT}"
     print(f"LED Studio on {url}")
     print("Ctrl+C to stop. Closing the page does NOT release the lights -")
     print("use the Release button, or stop this server.")
@@ -286,7 +333,8 @@ if __name__ == "__main__":
     except Exception:
         pass
     try:
-        srv.serve_forever()
+        while True:
+            threading.Event().wait(3600)
     except KeyboardInterrupt:
         print("\nstopping; releasing control")
         OVERRIDE.unlink(missing_ok=True)

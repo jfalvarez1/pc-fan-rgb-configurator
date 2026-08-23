@@ -81,7 +81,7 @@
 </div>
 
 <aside>
-  <h1>LED Studio<small id="sub">connecting…</small></h1>
+  <h1>LED Studio<small id="sub">connecting…</small><small style="opacity:.55">build BUILDSTAMP</small></h1>
 
   <section>
     <h2>Hardware control</h2>
@@ -180,6 +180,17 @@
 </aside>
 
 <script>
+window.onerror = function(m, src, line, col){
+  const el = document.getElementById("msg");
+  if(el) el.textContent = "JS ERROR: " + m + "  (line " + line + ":" + col + ")";
+  return false;
+};
+window.onunhandledrejection = function(e){
+  const el = document.getElementById("msg");
+  if(el) el.textContent = "PROMISE ERROR: " + (e.reason && e.reason.message
+                                               ? e.reason.message : e.reason);
+};
+
 const SW = ["#ff3aa2","#ba33ff","#00e9ff","#00ff88","#ffd400","#ff5a00",
             "#ffffff","#000000"];
 let layout = [], leds = {}, sel = [], selOrder = [], controlling = false;
@@ -354,12 +365,26 @@ function buildColours(){
   });
   return out;
 }
+let applyBusy = false, applyErrAt = 0;
 async function applyNow(quiet){
   if(!controlling){ if(!quiet) msg("take control first, or the daemon will overwrite this"); return; }
-  const r = await (await fetch("/api/apply",{method:"POST",
-      headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({colours:buildColours()})})).json();
+  // never queue frames: if the previous write is still in flight, skip this
+  // one. Without this the animation buried itself under a request backlog.
+  if(quiet && applyBusy) return;
+  applyBusy = true;
+  let r;
+  try{
+    r = await (await fetch("/api/apply",{method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({colours:buildColours(), stream:!!quiet})})).json();
+  } catch(e){
+    r = {ok:false, error:String(e)};
+  } finally { applyBusy = false; }
   if(!quiet) msg(r.ok? "applied to "+r.devices+" device(s)" : "apply failed: "+r.error);
+  // surface streaming failures too, but at most once every 3 s
+  else if(!r.ok && performance.now()-applyErrAt > 3000){
+    applyErrAt = performance.now(); msg("apply failed: "+r.error);
+  }
 }
 function maybeLive(){ if($("#live").checked) applyNow(); }
 
@@ -404,20 +429,36 @@ const FX = {
 let fxName=null, fxRaf=null, fxT0=0, fxLastSend=0;
 const CANVAS_W=660, CANVAS_H=580;
 
+let fxFrames = 0;
 function fxFrame(){
   if(!fxName){ fxRaf=null; return; }
-  const sp = parseFloat($("#fxspeed").value);
-  const t = (performance.now()-fxT0)/1000 * sp;
-  const fn = FX[fxName];
-  eachLed((o,k)=>setPreview(k, fn(o.x/CANVAS_W, o.y/CANVAS_H, t)));
-  if($("#fxhw").checked && performance.now()-fxLastSend > 70){
-    fxLastSend = performance.now();
-    applyNow(true);
+  // Everything is wrapped: an exception here used to break the rAF chain,
+  // which rendered exactly one frame and then silently stopped.
+  try{
+    const sp = parseFloat($("#fxspeed").value) || 1;
+    const t = (performance.now()-fxT0)/1000 * sp;
+    const fn = FX[fxName];
+    if(typeof fn !== "function") throw new Error("unknown effect "+fxName);
+    eachLed((o,k)=>{
+      const c = fn(o.x/CANVAS_W, o.y/CANVAS_H, t);
+      setPreview(k, [c[0]|0, c[1]|0, c[2]|0]);
+    });
+    fxFrames++;
+    if(fxFrames % 30 === 0){
+      msg(fxName+": "+fxFrames+" frames, t="+t.toFixed(1)+"s"
+          +($("#fxhw").checked?"  (driving hardware)":"  (preview only)"));
+    }
+    if($("#fxhw").checked && performance.now()-fxLastSend > 55){
+      fxLastSend = performance.now();
+      applyNow(true);
+    }
+  }catch(err){
+    msg("animation error: "+(err && err.message ? err.message : err));
   }
   fxRaf = requestAnimationFrame(fxFrame);
 }
 function startFx(name){
-  fxName = name; fxT0 = performance.now();
+  fxName = name; fxT0 = performance.now(); fxFrames = 0;
   document.querySelectorAll("[data-fx]").forEach(b=>
     b.classList.toggle("on", b.dataset.fx===name));
   msg("animating: "+name+($("#fxhw").checked?" (driving hardware)":" (preview only)"));

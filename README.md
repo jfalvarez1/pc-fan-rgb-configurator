@@ -281,11 +281,48 @@ cannot strand the lights on.
 
 ---
 
-## LED Studio and spatial effects
+## Postmortem: why the browser version looked broken
 
-`led_studio.py` serves a browser editor on **http://localhost:8770**: the case
+Kept because the lesson is worth more than the code.
+
+A local web app (HTTP server + HTML) appeared not to animate for many rounds.
+Diagnosed afterwards with Playwright: **the animation was working the entire
+time** - 2850 frames rendered, colours changing. But "Drive hardware" defaulted
+to UNCHECKED, so applyNow hit `if (quiet && !controlling) return;` and did
+nothing, silently. The native rewrite defaulted that toggle ON, which is the
+only reason it "just worked".
+
+Three real bugs were fixed en route, NONE of which was the cause:
+
+  * server bound to 127.0.0.1 only. "localhost" resolves to ::1 first on
+    Windows 11, so every request stalled ~2 s before falling back:
+    2050 ms vs 7.8 ms, a 263x penalty.
+  * a missing `import socket` crashed startup, caught only by running in the
+    foreground instead of trusting a background launch.
+  * no cache headers, so the browser could serve stale JS after every fix.
+
+Lessons, in order of how much they would have saved:
+
+  1. Never let a control path no-op SILENTLY. A disabled toggle must say so at
+     the moment the action is requested.
+  2. Default the obvious toggle ON. A tool that exists to drive hardware should
+     drive hardware.
+  3. Instrument first. A frame counter and an on-screen error line belong in
+     version one, not version six.
+  4. Never ask the user to read a browser console. If the UI cannot report its
+     own state, that is a design failure - and Playwright can diagnose it in
+     one round rather than six.
+  5. Do not claim a root cause without proving it.
+
+The web version now lives in `_retired/`. Native Tk is the default for local
+tools on this machine.
+
+## LED Studio (native) and spatial effects
+
+`led_studio_native.py` is a standalone Tk app - no browser, no HTTP. The case
 drawn to scale, every LED individually clickable, live preview, and hardware
-written only on Apply.
+written on a worker thread that only ever sends the NEWEST frame, so a slow
+device drops frames instead of building a backlog.
 
   * click an LED, or a fan's centre for the whole fan
   * drag on empty space to rubber-band select; Shift extends

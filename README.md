@@ -398,6 +398,31 @@ Two things it took iterations to get right, both visible in the code comments:
 
 Regenerate with `python scripts/make_icon.py`.
 
+## UI notes
+
+Layout canvas is 820x680. Elements are spread with clearance, and labels are
+placed by element type - below rings past their radius, below vertical strips,
+ABOVE horizontal strips - so text never lands on an LED.
+
+The GPU run is right-adjusted on the card body, because that is where the lit
+strip physically sits: LED 0-4 are the "ZOTAC" text, 5-7 the logo.
+
+Unlit LEDs are drawn #242c3a with a lighter rim. They used to be #11151c
+against a #0d0f14 background - effectively invisible, so a dark case read as a
+field of empty holes.
+
+Buttons are flat tk.Labels with hover and an accent active state. Tk's default
+3D relief looks like Windows XP. Active state is used to SHOW state: the
+running effect, Take control, Drive hardware and Brush all light up.
+
+### Taskbar icon
+
+Windows groups taskbar buttons by AppUserModelID. A script launched through
+pythonw.exe inherits PYTHON'S id, so the taskbar showed the Python icon even
+though the title bar and Start Menu showed ours. Fixed by calling
+SetCurrentProcessExplicitAppUserModelID("HardwareControl.LEDStudio") BEFORE
+any window is created.
+
 ## Autostart
 
 | Component | Mechanism |

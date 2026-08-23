@@ -25,6 +25,7 @@ import urllib.request
 
 import case_layout
 import fan_tuning
+import single_instance
 import nzxt_util
 import openrgb_boot
 import rgb_effects
@@ -765,6 +766,13 @@ def main():
                     help="also append output to thermal_loop.log (for pythonw,"
                          " which has no console)")
     args = ap.parse_args()
+
+    # Only one process may drive these devices. Two mobo_daemons were
+    # found running at once, fighting over the same headers - and
+    # schtasks /End had reported success while leaving one alive.
+    if args.apply and not single_instance.claim("ThermalRGBLoop"):
+        print("another ThermalRGBLoop is already driving hardware - exiting")
+        return 1
 
     if args.log:
         import pathlib

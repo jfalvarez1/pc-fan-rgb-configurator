@@ -505,6 +505,36 @@ to throw away by accident. What IS adjustable is bounded:
 Nothing on the tab touches hardware. It reads only the files the daemons
 publish, so the view can never fight a daemon for a device.
 
+### Two daemons, silently fighting
+
+The pump was found at 24.7% (1369 rpm - below the 1500 rpm abort floor in the
+measured map) while the daemon logged "pinned at 56%" on every poll. Two
+separate faults, and the first one hid the second:
+
+1. **The pump was pinned ONCE at startup and never verified.** Anything that
+   took the header afterwards won permanently, and the log kept reporting the
+   value the daemon had intended rather than the one the hardware held.
+2. **Two `mobo_daemon` processes were running at once** - one orphaned from an
+   earlier session, one current - both driving the same SuperIO chip. The tell
+   was the radiator's commanded duty alternating between two values on
+   consecutive polls: impossible for one process, since `commanded` only
+   changes when it writes. Two processes were interleaving into one log file.
+
+`schtasks /End` is not sufficient: when the Task Scheduler has lost track of
+the process it started, /End reports success and the orphan keeps running. So
+`single_instance.py` puts the guard in the daemon itself, using a named mutex
+rather than a PID file - the OS releases it however the process dies, so there
+is no stale lock and no window where a crashed daemon blocks its own restart.
+
+The pump now also re-asserts itself: if measured duty drifts more than 5
+points from target for 3 consecutive polls it writes the value back, at most
+5 times, then says another program owns the header rather than fighting it
+forever with PWM writes.
+
+`Fix Cooling.bat` (elevated) does the manual cleanup: stops duplicate daemons,
+stops FanControl / CAM / SignalRGB, restarts both daemons and verifies the
+pump landed on its commanded duty.
+
 ### Commanded vs measured
 
 The daemon logs "pump pinned at 56%" and moves on. If something else then

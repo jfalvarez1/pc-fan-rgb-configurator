@@ -284,8 +284,19 @@ you own needs no elevation, even though the task itself runs elevated.
 ## Troubleshooting
 
 **A fan or the pump ignores its curve.** The Fans tab flags this directly:
-`pump commanded 56% but hardware reports 25%`. It means another program has
-taken the header. Only one may own it. The usual culprits:
+`pump commanded 56% but hardware reports 25%`.
+
+**Run `Fix Cooling.bat`** (it will ask for administrator rights). It stops
+duplicate daemons, stops any program holding the same chip, restarts both
+daemons, and tells you whether the pump landed on its commanded duty.
+
+Two things cause this. The first is a **duplicate daemon** - two copies
+driving the same chip and overwriting each other. `schtasks /End` does not
+always clear one: if the Task Scheduler has lost track of the process it
+started, it reports success and the orphan keeps running. The daemons now
+refuse to start a second driving copy, so this cannot recur.
+
+The second is **another program owning the header**. Only one may:
 
 - **FanControl** — writes the same SuperIO chip as `mobo_daemon`. Do not run
   both. This is the most common cause.

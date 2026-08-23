@@ -27,6 +27,7 @@ import ctypes
 import json
 
 import fan_tuning
+import single_instance
 import os
 import pathlib
 import sys
@@ -64,6 +65,20 @@ PUMP_MIN_SAFE = 40.0        # hard floor on DUTY. This pump saturates
 # cooling. Noise is not a constraint, so this ramps hard and early.
 RAD_CURVE = [(40, 40), (50, 55), (60, 72), (70, 88), (78, 100)]
 RAD_MIN_DUTY = 40
+
+# --- the pump is pinned ONCE at startup, and that turned out not to be enough.
+# Found with the pump sitting at 24.7% (1369 rpm - below the 1500 rpm abort
+# floor in the measured map) for an unknown length of time, while this daemon
+# logged "pinned at 56%" every poll and never checked. FanControl had taken the
+# header; nothing re-asserted, and nothing noticed.
+#
+# So: watch what the hardware actually reports, and put the pump back if it
+# drifts. Bounded on purpose - if something is actively fighting for the
+# header, re-writing PWM forever would be its own bug, so after a few attempts
+# it stops trying and just keeps saying so.
+PUMP_DRIFT = 5.0            # duty points from target before it counts as drift
+PUMP_DRIFT_POLLS = 3        # consecutive drifting polls before re-asserting
+PUMP_MAX_REASSERTS = 5      # then give up and warn rather than fight
 
 POLL = 3.0
 # CPU temperature is far jitterier than GPU - a 9800X3D moves several degrees
@@ -122,6 +137,13 @@ def main():
     ap.add_argument("--log", action="store_true")
     ap.add_argument("--once", action="store_true")
     args = ap.parse_args()
+
+    # Only one process may drive these devices. Two mobo_daemons were
+    # found running at once, fighting over the same headers - and
+    # schtasks /End had reported success while leaving one alive.
+    if args.apply and not single_instance.claim("MoboDaemon"):
+        print("another MoboDaemon is already driving hardware - exiting")
+        return 1
 
     if args.log:
         f = open(BASE / "mobo_daemon.log", "a", buffering=1, encoding="utf-8")
@@ -233,11 +255,41 @@ def main():
     smoothed = None
     commanded = None
     fall_since = None
+    drift_polls = 0
+    reasserts = 0
     try:
         while True:
             now = time.monotonic()
             s = sensors()
             cpu = s.get("cpu_tctl")
+
+            # pump: verify, do not assume
+            measured = s.get("pump_duty")
+            if measured is not None and args.apply:
+                if abs(measured - pump_duty) > PUMP_DRIFT:
+                    drift_polls += 1
+                    if drift_polls >= PUMP_DRIFT_POLLS:
+                        drift_polls = 0
+                        if reasserts < PUMP_MAX_REASSERTS:
+                            reasserts += 1
+                            print(f"WARNING: pump at {measured:.1f}%, expected "
+                                  f"{pump_duty:.0f}% - something else wrote "
+                                  f"this header. Re-asserting "
+                                  f"({reasserts}/{PUMP_MAX_REASSERTS}).",
+                                  flush=True)
+                            try:
+                                ctl[PUMP_HEADER].Control.SetSoftware(pump_duty)
+                            except Exception as exc:
+                                print(f"  re-assert failed: {exc}", flush=True)
+                        else:
+                            print(f"WARNING: pump still at {measured:.1f}% "
+                                  f"after {PUMP_MAX_REASSERTS} attempts - "
+                                  f"another program owns {PUMP_HEADER}. "
+                                  f"Close FanControl / NZXT CAM and restart "
+                                  f"this daemon.", flush=True)
+                else:
+                    drift_polls = 0
+                    reasserts = 0
             if cpu is not None:
                 smoothed = cpu if smoothed is None else (
                     EMA_ALPHA * cpu + (1 - EMA_ALPHA) * smoothed)

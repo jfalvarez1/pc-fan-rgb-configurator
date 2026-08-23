@@ -26,3 +26,7 @@ scripts/lhm_report.txt
 scripts/mobo_fan_report.txt
 scripts/probe_one.txt
 scripts/pump_map.txt
+scripts/fan_state.json
+
+# abandoned C experiment - see README on why the rewrite was not pursued
+native/

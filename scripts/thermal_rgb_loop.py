@@ -16,12 +16,14 @@ Ctrl+C restores every channel to SAFE_EXIT_DUTY.
 import argparse
 import json
 import os
+import pathlib
 import subprocess
 import sys
 import time
 import threading
 import urllib.request
 
+import case_layout
 import nzxt_util
 import rgb_effects
 
@@ -136,6 +138,15 @@ OPENRGB_PORT = 6742
 # "thermal"   - one colour everywhere, mapped from temperature
 # Override per run with --rgb-mode, e.g. --rgb-mode synthwave
 RGB_MODE = "auto"
+
+# Which spatial effect the wave uses. All are rendered by PHYSICAL POSITION
+# using case_layout, so they sweep across the case correctly instead of
+# scrambling at fan boundaries the way index-based rendering did.
+#   wave radial spiral comet rain plasma breathe fire
+WAVE_EFFECT = "wave"
+# Cycle through several instead of sitting on one. Empty list = no cycling.
+WAVE_CYCLE = ["wave", "radial", "plasma", "spiral"]
+WAVE_CYCLE_SECONDS = 90.0
 
 # What counts as "gaming" for auto mode. Thresholds are asymmetric on purpose:
 # turning ON is quick and eager, turning OFF is slow and reluctant, so a
@@ -399,6 +410,7 @@ class RGBOutput:
         self.strips = []
         self.points = []
         self.static_only = []
+        self.spatial = []
         self.temp = None
         self.apply = False
         self._thread = None
@@ -411,6 +423,22 @@ class RGBOutput:
             self.connect()
 
     # ---- connection
+
+    @staticmethod
+    def _resolve(client, el):
+        """Map a layout element to (device, absolute LED offset)."""
+        matches = [d for d in client.devices
+                   if d is not None and getattr(d, "type", None) is not None
+                   and el["device"].lower() in d.name.lower()]
+        if not matches:
+            return None, None
+        dev = matches[min(el.get("dev_index", 0), len(matches) - 1)]
+        off = 0
+        for z in dev.zones:
+            if el["zone"].lower() in z.name.lower():
+                return dev, off + el["start"]
+            off += len(z.leds)
+        return None, None
 
     def maybe_reconnect(self):
         if not self.enabled or self.client is not None:
@@ -462,10 +490,23 @@ class RGBOutput:
                           f" LED(s) -> slow updates to spare its flash")
                 else:
                     print(f"[rgb] {dev.name}: no usable mode, skipping")
+            # spatial map: element -> (device, offset, [(led_index, nx, ny)])
+            spatial = []
+            byel = {}
+            for el, i, nx, ny in case_layout.led_positions():
+                byel.setdefault(el["id"], (el, []))[1].append((i, nx, ny))
+            for el_id, (el, pts) in byel.items():
+                dev, off = self._resolve(client, el)
+                if dev is not None:
+                    spatial.append((dev, off, pts))
+
             with self._lock:
                 self.client = client
                 self.strips, self.points = strips, points
                 self.static_only = static_only
+                self.spatial = spatial
+            print(f"[rgb] spatial map: {sum(len(p) for _d,_o,p in spatial)} "
+                  f"LEDs across {len(spatial)} runs")
             total = len(strips) + len(points) + len(static_only)
             print(f"[rgb] connected, driving {total} device(s) in {self.mode}")
             if self.mode == "synthwave":
@@ -615,9 +656,32 @@ class RGBOutput:
                     points = list(self.points)
                     statics = list(self.static_only)
 
-                for dev in strips:
-                    dev.set_colors(self._colours_for(dev, want, phase, now),
-                                   fast=True)
+                if want == "wave" and self.spatial:
+                    # SPATIAL rendering: every LED is coloured from its real
+                    # position in the case, so an effect sweeps across the
+                    # machine rather than restarting at each fan.
+                    fn = rgb_effects.SPATIAL.get(self._effect_now(now),
+                                                 rgb_effects.fx_wave)
+                    bufs = {}
+                    with self._lock:
+                        runs = list(self.spatial)
+                    for dev, off, pts in runs:
+                        buf = bufs.get(dev.id)
+                        if buf is None:
+                            buf = [RGBColor(0, 0, 0)] * len(dev.leds)
+                            bufs[dev.id] = (buf, dev)
+                            buf = bufs[dev.id][0]
+                        for i, nx, ny in pts:
+                            k = off + i
+                            if 0 <= k < len(buf):
+                                buf[k] = RGBColor(*fn(nx, ny, now,
+                                                      WAVE_PALETTE))
+                    for buf, dev in bufs.values():
+                        dev.set_colors(buf, fast=True)
+                else:
+                    for dev in strips:
+                        dev.set_colors(self._colours_for(dev, want, phase, now),
+                                       fast=True)
 
                 if points or statics:
                     if want == "glow":
@@ -927,6 +991,25 @@ def main():
                 colour = lerp_color(RGB_STOPS, temp_rgb)
                 rgb.push(colour, args.apply)
                 line += f" | rgb={colour}"
+
+            # publish state for the layout viewer
+            try:
+                _st = {"ts": time.time(),
+                       "temps": {k: round(v, 1) for k, v in smoothed.items()},
+                       "fans": {}, "rgb_mode": rgb.mode,
+                       "rgb_active": bool(getattr(rgb, "_active", False)),
+                       "claude": claude_thinking()}
+                for _ch, _cfg in FAN_CHANNELS.items():
+                    _st["fans"][_ch] = {"label": _cfg["label"],
+                                        "duty": commanded.get(_ch)}
+                if nzxt is not None:
+                    _r = nzxt_util.read_speeds(nzxt)
+                    for _i, _ch in enumerate(FAN_CHANNELS, start=1):
+                        _st["fans"][_ch]["rpm"] = _r.get(_i)
+                (pathlib.Path(_BASE) / "fan_state.json").write_text(
+                    json.dumps(_st, indent=2))
+            except Exception:
+                pass
 
             if csv_fh is not None and nzxt is not None:
                 try:

@@ -1,5 +1,5 @@
 {
-  "ASUS PRIME B650-PLUS WIFI|Aura Addressable 2": "GPU ZOTAC Gaming logo (24)",
+  "ASUS PRIME B650-PLUS WIFI|Aura Addressable 2": "GPU ARGB via mobo header 2. VERIFIED: LED 0-4 = 'ZOTAC' text, 5-7 = logo. LEDs 8-23 tested and drive nothing - spare header capacity, nothing connected. Zone left sized 24 so a future strip works without a resize.",
   "ASUS PRIME B650-PLUS WIFI|Aura Addressable 1": "Arctic LF III Pro 360 A-RGB: 48 LEDs = pump 12 + 3 rad fans x12. CHAIN ORDER IS RIGHT-TO-LEFT: idx 12-23 = rightmost fan, 24-35 = middle, 36-47 = leftmost",
   "ASUS PRIME B650-PLUS WIFI|Aura Addressable 3": "empty",
   "NZXT RGB & Fan Controller|Hue 2 Channel 1": "front F360 RGB Core - 3x120mm, 8 LEDs each = 24",

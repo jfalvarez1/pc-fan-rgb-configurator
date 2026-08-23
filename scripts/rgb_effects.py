@@ -220,3 +220,99 @@ def main():
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+# ===========================================================================
+# SPATIAL EFFECTS
+#
+# These take a NORMALISED position in the case (nx, ny in 0..1) plus a time,
+# and return a colour. That is the whole point: the old wave was indexed by
+# LED number, so it scrambled at every fan boundary. Driving by physical
+# position makes a wave actually sweep across the case.
+#
+# Every function has the signature f(nx, ny, t, palette) -> (r, g, b).
+# ===========================================================================
+
+
+def _wrap(v):
+    return v - math.floor(v)
+
+
+def fx_wave(nx, ny, t, palette, speed=0.12, angle=35.0, cycles=1.4):
+    """Travelling gradient at an angle across the case."""
+    a = math.radians(angle)
+    proj = nx * math.cos(a) + ny * math.sin(a)
+    return gamma(cyclic_gradient(palette, proj * cycles + t * speed))
+
+
+def fx_radial(nx, ny, t, palette, speed=0.22, cycles=2.0):
+    """Ripples expanding from the centre of the case."""
+    d = math.hypot(nx - 0.5, ny - 0.5) * 1.6
+    return gamma(cyclic_gradient(palette, d * cycles - t * speed))
+
+
+def fx_spiral(nx, ny, t, palette, speed=0.18, arms=2.0):
+    """Pinwheel spiralling about the case centre."""
+    dx, dy = nx - 0.5, ny - 0.5
+    ang = math.atan2(dy, dx) / math.tau
+    d = math.hypot(dx, dy) * 1.6
+    return gamma(cyclic_gradient(palette, ang * arms + d + t * speed))
+
+
+def fx_comet(nx, ny, t, palette, speed=0.30, tail=0.22):
+    """A bright head orbiting the case with a fading tail."""
+    head = _wrap(t * speed)
+    ang = _wrap(math.atan2(ny - 0.5, nx - 0.5) / math.tau)
+    d = _wrap(head - ang)
+    b = max(0.0, 1.0 - d / tail) ** 2
+    base = cyclic_gradient(palette, head)
+    return tuple(max(0, min(255, round(c * b))) for c in gamma(base))
+
+
+def fx_rain(nx, ny, t, palette, speed=0.45, drops=7.0):
+    """Streaks falling down the case."""
+    col = math.floor(nx * drops)
+    phase = _wrap(t * speed + col * 0.37)
+    d = _wrap(ny - phase)
+    b = max(0.0, 1.0 - d / 0.30) ** 2
+    base = cyclic_gradient(palette, _wrap(col / drops + t * 0.05))
+    return tuple(max(0, min(255, round(c * b))) for c in gamma(base))
+
+
+def fx_plasma(nx, ny, t, palette, speed=0.16, scale=3.0):
+    """Classic interfering sine plasma."""
+    v = (math.sin(nx * scale + t * speed * 3)
+         + math.sin(ny * scale * 1.3 - t * speed * 2)
+         + math.sin((nx + ny) * scale * 0.8 + t * speed * 2.5))
+    return gamma(cyclic_gradient(palette, _wrap(v / 6 + 0.5)))
+
+
+def fx_breathe(nx, ny, t, palette, speed=0.10):
+    """Whole case pulsing through the palette together."""
+    b = 0.35 + 0.65 * (0.5 - 0.5 * math.cos(t * speed * math.tau))
+    base = cyclic_gradient(palette, _wrap(t * speed * 0.25))
+    return tuple(max(0, min(255, round(c * b))) for c in gamma(base))
+
+
+def fx_fire(nx, ny, t, palette, speed=0.55, scale=6.0):
+    """Heat rising from the bottom of the case."""
+    flick = (math.sin(nx * scale + t * speed * 4)
+             + math.sin(nx * scale * 2.3 - t * speed * 3)) * 0.08
+    h = max(0.0, min(1.0, (1.0 - ny) + flick))
+    r = 255
+    g = int(max(0, min(255, 240 * h ** 1.7)))
+    b = int(max(0, min(255, 90 * max(0.0, h - 0.72) / 0.28)))
+    lvl = 0.25 + 0.75 * h
+    return (int(r * lvl), int(g * lvl), int(b * lvl))
+
+
+SPATIAL = {
+    "wave": fx_wave,
+    "radial": fx_radial,
+    "spiral": fx_spiral,
+    "comet": fx_comet,
+    "rain": fx_rain,
+    "plasma": fx_plasma,
+    "breathe": fx_breathe,
+    "fire": fx_fire,
+}

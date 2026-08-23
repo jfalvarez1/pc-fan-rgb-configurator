@@ -1,0 +1,464 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>LED Studio</title>
+<style>
+  :root{
+    --bg:#0d0f14; --panel:#161a22; --line:#252b36; --ink:#e6e9ef;
+    --muted:#8b93a3; --accent:#ff3aa2; --accent2:#00e9ff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:14px/1.45 "Segoe UI",system-ui,sans-serif;display:flex;height:100vh}
+  #stage{flex:1;display:flex;flex-direction:column;min-width:0}
+  #canvaswrap{flex:1;display:grid;place-items:center;overflow:auto;padding:14px}
+  svg{max-width:100%;max-height:100%}
+  aside{width:330px;background:var(--panel);border-left:1px solid var(--line);
+        display:flex;flex-direction:column;overflow-y:auto}
+  h1{font-size:15px;margin:0;padding:14px 16px;border-bottom:1px solid var(--line);
+     letter-spacing:.4px}
+  h1 small{color:var(--muted);font-weight:400;display:block;font-size:11px;margin-top:3px}
+  section{padding:12px 16px;border-bottom:1px solid var(--line)}
+  section h2{font-size:11px;text-transform:uppercase;letter-spacing:1px;
+             color:var(--muted);margin:0 0 9px}
+  button{background:#212836;color:var(--ink);border:1px solid var(--line);
+         border-radius:6px;padding:7px 10px;cursor:pointer;font-size:12.5px}
+  button:hover{background:#2b3446;border-color:#3a4560}
+  button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+  button.wide{width:100%;margin-top:6px}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff;
+                 font-weight:600;padding:10px}
+  button.ghost{background:transparent}
+  .row{display:flex;gap:6px;flex-wrap:wrap}
+  .sw{width:30px;height:30px;border-radius:6px;border:1px solid #333c4d;cursor:pointer}
+  input[type=color]{width:100%;height:44px;background:none;border:1px solid var(--line);
+                    border-radius:6px;cursor:pointer;padding:2px}
+  input[type=range]{width:100%}
+  .stat{display:flex;justify-content:space-between;font-size:12px;padding:2px 0}
+  .stat b{font-weight:600}
+  .muted{color:var(--muted)}
+  #sel{font-size:12px;color:var(--accent2);min-height:18px}
+  #msg{font-size:12px;padding:8px 16px;color:var(--muted);min-height:20px}
+  .led{cursor:pointer}
+  .led.sel{stroke:#fff;stroke-width:2.5}
+  .hitring{fill:transparent;cursor:pointer}
+  .lbl{font-size:10px;fill:var(--muted);text-anchor:middle;pointer-events:none;
+       font-family:inherit}
+  .case{fill:none;stroke:#2b3341;stroke-width:2}
+  .chip{fill:#1b2029;stroke:#2b3341}
+  .arrow{stroke:#39465c;stroke-width:1.5;marker-end:url(#ah)}
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <div id="canvaswrap">
+    <svg id="cv" viewBox="0 0 660 580" width="900">
+      <defs>
+        <marker id="ah" markerWidth="7" markerHeight="7" refX="6" refY="3.5"
+                orient="auto"><path d="M0,0 L7,3.5 L0,7 z" fill="#39465c"/></marker>
+        <filter id="glow" x="-70%" y="-70%" width="240%" height="240%">
+          <feGaussianBlur stdDeviation="3.2" result="b"/>
+          <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+      </defs>
+      <rect class="case" x="24" y="24" width="612" height="532" rx="14"/>
+      <line x1="150" y1="24" x2="150" y2="556" stroke="#222936" stroke-width="1.5"
+            stroke-dasharray="5 5"/>
+      <text class="lbl" x="87" y="44">cable chamber</text>
+      <rect class="chip" x="195" y="392" width="220" height="66" rx="7"/>
+      <text class="lbl" x="305" y="452">RTX 5090 (vertical mount)</text>
+      <text class="lbl" x="370" y="20">TOP - radiator exhaust</text>
+      <text class="lbl" x="355" y="566">BOTTOM - F420 intake</text>
+      <text class="lbl" x="612" y="440" transform="rotate(90 612 440)">SIDE - F360 intake</text>
+      <g id="elements"></g>
+      <rect id="marq" fill="rgba(255,58,162,.12)" stroke="#ff3aa2"
+            stroke-dasharray="4 3" visibility="hidden"/>
+    </svg>
+  </div>
+  <div id="msg">loading…</div>
+</div>
+
+<aside>
+  <h1>LED Studio<small id="sub">connecting…</small></h1>
+
+  <section>
+    <h2>Hardware control</h2>
+    <button id="ctl" class="wide">Take control</button>
+    <div class="muted" style="font-size:11px;margin-top:6px">
+      The daemon must be paused or it repaints over your edits.
+    </div>
+  </section>
+
+  <section>
+    <h2>Selection</h2>
+    <div id="sel">nothing selected</div>
+    <div class="row" style="margin-bottom:8px">
+      <button id="mSel" class="on">Select</button>
+      <button id="mBrush">Brush</button>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button id="selall">All</button>
+      <button id="selnone">None</button>
+      <button id="selfans">Fans only</button>
+      <button id="selinv">Invert</button>
+    </div>
+    <div class="muted" style="font-size:11px;margin-top:7px">
+      <b>Select</b>: click an LED, or a fan's centre for the whole fan.
+      Drag on empty space to rubber-band. Shift keeps the existing selection.<br>
+      <b>Brush</b>: drag across LEDs to paint them directly.
+    </div>
+  </section>
+
+  <section>
+    <h2>Colour</h2>
+    <input type="color" id="pick" value="#ff3aa2">
+    <div class="row" style="margin-top:8px" id="swatches"></div>
+    <button class="wide" id="paint">Paint selection</button>
+    <button class="wide ghost" id="off">Blank selection</button>
+  </section>
+
+  <section>
+    <h2>Patterns</h2>
+    <div class="row">
+      <button data-pat="rainbow">Rainbow</button>
+      <button data-pat="gradient">Gradient</button>
+      <button data-pat="synthwave">Synthwave</button>
+      <button data-pat="fire">Fire</button>
+      <button data-pat="ice">Ice</button>
+      <button data-pat="alternate">Alternate</button>
+    </div>
+    <div style="margin-top:9px">
+      <span class="muted" style="font-size:11px">Spread</span>
+      <input type="range" id="spread" min="1" max="6" step="0.5" value="2">
+    </div>
+    <div class="muted" style="font-size:11px">
+      Patterns apply across the current selection, in click order.
+    </div>
+  </section>
+
+  <section>
+    <h2>Apply</h2>
+    <label style="font-size:12px;display:flex;gap:7px;align-items:center">
+      <input type="checkbox" id="live"> Live — write on every change
+    </label>
+    <button class="primary wide" id="apply">Apply to hardware</button>
+    <button class="wide ghost" id="revert">Revert preview</button>
+  </section>
+
+  <section>
+    <h2>Live telemetry</h2>
+    <div id="tele" class="muted">…</div>
+  </section>
+</aside>
+
+<script>
+const SW = ["#ff3aa2","#ba33ff","#00e9ff","#00ff88","#ffd400","#ff5a00",
+            "#ffffff","#000000"];
+let layout = [], leds = {}, sel = [], selOrder = [], controlling = false;
+
+const $ = s => document.querySelector(s);
+const msg = t => $("#msg").textContent = t;
+const hex2rgb = h => [1,3,5].map(i=>parseInt(h.slice(i,i+2),16));
+const rgb2hex = c => "#"+c.map(v=>v.toString(16).padStart(2,"0")).join("");
+
+function hsl(h,s,l){                       // h 0..1
+  const f=n=>{const k=(n+h*12)%12,a=s*Math.min(l,1-l);
+    return Math.round(255*(l-a*Math.max(-1,Math.min(k-3,Math.min(9-k,1)))));};
+  return [f(0),f(8),f(4)];
+}
+
+async function boot(){
+  layout = await (await fetch("/api/layout")).json();
+  const g = $("#elements"); g.innerHTML="";
+  const missing = [];
+  layout.forEach(el=>{
+    if(!el.connected) missing.push(el.label);
+    const ring = document.createElementNS("http://www.w3.org/2000/svg","g");
+    // centre hit target = select the whole element
+    const hit = document.createElementNS("http://www.w3.org/2000/svg","circle");
+    hit.setAttribute("cx",el.x); hit.setAttribute("cy",el.y);
+    hit.setAttribute("r", (el.kind==="strip_v"||el.kind==="strip_h")
+                          ? 7 : Math.max(8,el.r*0.42));
+    hit.setAttribute("class","hitring");
+    hit.onclick = e => { selectElement(el.id, e.shiftKey); };
+    ring.appendChild(hit);
+
+    const vertical   = el.kind === "strip_v";
+    const horizontal = el.kind === "strip_h";
+    if(horizontal){
+      const w = el.count*11 + 10;
+      const box = document.createElementNS("http://www.w3.org/2000/svg","rect");
+      box.setAttribute("x", el.x-w/2); box.setAttribute("y", el.y-9);
+      box.setAttribute("width",w); box.setAttribute("height",18);
+      box.setAttribute("rx",4); box.setAttribute("fill","none");
+      box.setAttribute("stroke", el.connected? "#2f3949":"#4a2530");
+      ring.appendChild(box);
+    } else if(vertical){
+      const box = document.createElementNS("http://www.w3.org/2000/svg","rect");
+      const h = el.count*13 + 10;
+      box.setAttribute("x", el.x-9); box.setAttribute("y", el.y-h/2);
+      box.setAttribute("width",18); box.setAttribute("height",h);
+      box.setAttribute("rx",4); box.setAttribute("fill","none");
+      box.setAttribute("stroke", el.connected? "#2f3949":"#4a2530");
+      ring.appendChild(box);
+    } else {
+      const outline = document.createElementNS("http://www.w3.org/2000/svg","circle");
+      outline.setAttribute("cx",el.x); outline.setAttribute("cy",el.y);
+      outline.setAttribute("r",el.r); outline.setAttribute("fill","none");
+      outline.setAttribute("stroke", el.connected? "#2f3949":"#4a2530");
+      ring.appendChild(outline);
+    }
+
+    leds[el.id]=[];
+    for(let i=0;i<el.count;i++){
+      const c = document.createElementNS("http://www.w3.org/2000/svg","circle");
+      if(horizontal){
+        const w = el.count*11;
+        c.setAttribute("cx", el.x - w/2 + 5.5 + i*11);
+        c.setAttribute("cy", el.y);
+      } else if(vertical){
+        // vertical strip: LEDs run down the stick
+        const h = el.count*13;
+        c.setAttribute("cx", el.x);
+        c.setAttribute("cy", el.y - h/2 + 6 + i*13);
+      } else {
+        // rot   = rotate the ring (degrees)
+        // flip  = mirror LEFT<->RIGHT   (keeps top/bottom)
+        // vflip = mirror TOP<->BOTTOM   (keeps left/right)
+        // Both mirrors are applied AFTER the rotation, so they act on the
+        // final drawn positions - that is what makes "left and right are
+        // already correct, just swap top and bottom" do the right thing.
+        let a = (i/el.count)*Math.PI*2 - Math.PI/2
+                + (el.rot||0)*Math.PI/180;
+        if(el.flip)  a = Math.PI - a;
+        if(el.vflip) a = -a;
+        c.setAttribute("cx", el.x + Math.cos(a)*el.r);
+        c.setAttribute("cy", el.y + Math.sin(a)*el.r);
+      }
+      c.setAttribute("r", (vertical||horizontal)?4.2:(el.count>16?3.6:5));
+      c.setAttribute("class","led");
+      c.setAttribute("fill","#11151c");
+      c.dataset.key = el.id+":"+i;
+      c.onclick = e => { e.stopPropagation(); selectLed(el.id,i,e.shiftKey); };
+      ring.appendChild(c);
+      leds[el.id].push({el:c, rgb:[0,0,0],
+                        x:parseFloat(c.getAttribute("cx")),
+                        y:parseFloat(c.getAttribute("cy"))});
+    }
+    const t = document.createElementNS("http://www.w3.org/2000/svg","text");
+    t.setAttribute("class","lbl"); t.setAttribute("x",el.x);
+    t.setAttribute("y", el.kind==="strip_v" ? el.y + el.count*6.5 + 22
+                     : el.kind==="strip_h" ? el.y + 26
+                     : el.y + el.r + 14);
+    t.textContent=el.label;
+    ring.appendChild(t);
+    g.appendChild(ring);
+  });
+  $("#sub").textContent = layout.filter(e=>e.connected).length+" of "+
+        layout.length+" runs connected";
+  msg(missing.length? "Not detected: "+missing.join(", ")
+                    : "All light runs detected. Click an LED to begin.");
+  poll();
+}
+
+function keys(){ return sel.slice(); }
+function refreshSel(){
+  document.querySelectorAll(".led").forEach(c=>c.classList.remove("sel"));
+  sel.forEach(k=>{
+    const [id,i]=k.split(":");
+    const o=leds[id] && leds[id][+i]; if(o) o.el.classList.add("sel");
+  });
+  $("#sel").textContent = sel.length? sel.length+" LED(s) selected"
+                                    : "nothing selected";
+}
+function addKey(k,keep){
+  if(!keep){ sel=[]; selOrder=[]; }
+  if(!sel.includes(k)){ sel.push(k); selOrder.push(k); }
+  refreshSel();
+}
+function selectLed(id,i,keep){ addKey(id+":"+i,keep); }
+function selectElement(id,keep){
+  if(!keep){ sel=[]; selOrder=[]; }
+  for(let i=0;i<leds[id].length;i++){
+    const k=id+":"+i; if(!sel.includes(k)){ sel.push(k); selOrder.push(k); }
+  }
+  refreshSel();
+}
+
+function setPreview(k,rgb){
+  const [id,i]=k.split(":"); const o=leds[id][+i]; if(!o) return;
+  o.rgb=rgb;
+  const dark = rgb[0]+rgb[1]+rgb[2] < 24;
+  o.el.setAttribute("fill", dark? "#11151c" : rgb2hex(rgb));
+  o.el.setAttribute("filter", dark? "" : "url(#glow)");
+}
+
+function paint(rgb){ keys().forEach(k=>setPreview(k,rgb)); maybeLive(); }
+
+function pattern(name){
+  const ks = selOrder.length? selOrder : keys();
+  if(!ks.length){ msg("select something first"); return; }
+  const spread = parseFloat($("#spread").value);
+  const base = hex2rgb($("#pick").value);
+  ks.forEach((k,i)=>{
+    const t = ks.length>1 ? (i/(ks.length-1))*spread % 1 : 0;
+    let c;
+    if(name==="rainbow")        c = hsl(t,1,.55);
+    else if(name==="gradient")  c = base.map(v=>Math.round(v*(0.15+0.85*t)));
+    else if(name==="synthwave"){
+      const P=[[255,58,162],[186,51,255],[0,233,255],[186,51,255]];
+      const p=t*P.length, i0=Math.floor(p)%P.length, f=p-Math.floor(p);
+      const a=P[i0], b=P[(i0+1)%P.length];
+      c=a.map((v,j)=>Math.round(v+(b[j]-v)*f));
+    }
+    else if(name==="fire")      c = hsl(0.02+t*0.10,1,.35+t*0.25);
+    else if(name==="ice")       c = hsl(0.50+t*0.12,1,.45+t*0.2);
+    else                        c = (i%2)? [0,0,0] : base;
+    setPreview(k,c);
+  });
+  maybeLive();
+}
+
+function buildColours(){
+  const out={};
+  Object.keys(leds).forEach(id=>{
+    out[id]=leds[id].map(o=>o.rgb);
+  });
+  return out;
+}
+async function applyNow(){
+  if(!controlling){ msg("take control first, or the daemon will overwrite this"); return; }
+  const r = await (await fetch("/api/apply",{method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({colours:buildColours()})})).json();
+  msg(r.ok? "applied to "+r.devices+" device(s)" : "apply failed: "+r.error);
+}
+function maybeLive(){ if($("#live").checked) applyNow(); }
+
+/* ---- drag: rubber-band select, or brush-paint ---- */
+let drag = null, brushMode = false;
+const svgEl = $("#cv"), marq = $("#marq");
+
+function svgPt(e){
+  const p = svgEl.createSVGPoint(); p.x = e.clientX; p.y = e.clientY;
+  return p.matrixTransform(svgEl.getScreenCTM().inverse());
+}
+function eachLed(fn){
+  Object.keys(leds).forEach(id=>leds[id].forEach((o,i)=>fn(o, id+":"+i)));
+}
+function inRect(o,x,y,w,h){
+  return o.x>=x && o.x<=x+w && o.y>=y && o.y<=y+h;
+}
+function showMarq(x,y,w,h){
+  marq.setAttribute("x",x); marq.setAttribute("y",y);
+  marq.setAttribute("width",w); marq.setAttribute("height",h);
+  marq.setAttribute("visibility","visible");
+}
+function paintAt(pt){
+  const rgb = hex2rgb($("#pick").value);
+  eachLed((o,k)=>{
+    const dx=o.x-pt.x, dy=o.y-pt.y;
+    if(dx*dx+dy*dy < 64) setPreview(k,rgb);      // ~8px brush radius
+  });
+}
+
+svgEl.addEventListener("mousedown", e=>{
+  const pt = svgPt(e);
+  if(brushMode){ drag={mode:"paint"}; paintAt(pt); }
+  else { drag={mode:"marq", x0:pt.x, y0:pt.y, add:e.shiftKey}; }
+  e.preventDefault();
+});
+svgEl.addEventListener("mousemove", e=>{
+  if(!drag) return;
+  const pt = svgPt(e);
+  if(drag.mode==="paint"){ paintAt(pt); return; }
+  const x=Math.min(drag.x0,pt.x), y=Math.min(drag.y0,pt.y);
+  const w=Math.abs(pt.x-drag.x0), h=Math.abs(pt.y-drag.y0);
+  showMarq(x,y,w,h);
+  eachLed((o,k)=>o.el.classList.toggle("sel",
+      inRect(o,x,y,w,h) || (drag.add && sel.includes(k))));
+});
+window.addEventListener("mouseup", ()=>{
+  if(!drag) return;
+  if(drag.mode==="marq"){
+    const x=+marq.getAttribute("x"), y=+marq.getAttribute("y");
+    const w=+marq.getAttribute("width"), h=+marq.getAttribute("height");
+    if(w>2||h>2){
+      if(!drag.add){ sel=[]; selOrder=[]; }
+      eachLed((o,k)=>{ if(inRect(o,x,y,w,h) && !sel.includes(k)){
+        sel.push(k); selOrder.push(k); } });
+    }
+    marq.setAttribute("visibility","hidden");
+    refreshSel();
+  } else maybeLive();
+  drag = null;
+});
+
+function setMode(b){
+  brushMode = b;
+  $("#mBrush").classList.toggle("on", b);
+  $("#mSel").classList.toggle("on", !b);
+  msg(b? "Brush: drag across LEDs to paint them"
+       : "Select: drag on empty space to rubber-band");
+}
+$("#mSel").onclick   = ()=>setMode(false);
+$("#mBrush").onclick = ()=>setMode(true);
+
+$("#paint").onclick = ()=>paint(hex2rgb($("#pick").value));
+$("#off").onclick   = ()=>paint([0,0,0]);
+$("#apply").onclick = applyNow;
+$("#revert").onclick= ()=>{ Object.keys(leds).forEach(id=>
+      leds[id].forEach((o,i)=>setPreview(id+":"+i,[0,0,0]))); msg("preview cleared"); };
+$("#selall").onclick = ()=>{ sel=[];selOrder=[];
+      layout.forEach(e=>selectElement(e.id,true)); };
+$("#selnone").onclick= ()=>{ sel=[];selOrder=[];refreshSel(); };
+$("#selfans").onclick= ()=>{ sel=[];selOrder=[];
+      layout.filter(e=>e.kind==="fan").forEach(e=>selectElement(e.id,true)); };
+$("#selinv").onclick = ()=>{ const cur=new Set(sel); sel=[];selOrder=[];
+      Object.keys(leds).forEach(id=>leds[id].forEach((o,i)=>{
+        const k=id+":"+i; if(!cur.has(k)){sel.push(k);selOrder.push(k);} }));
+      refreshSel(); };
+document.querySelectorAll("[data-pat]").forEach(b=>
+      b.onclick=()=>pattern(b.dataset.pat));
+
+$("#ctl").onclick = async ()=>{
+  const r = await (await fetch("/api/control",{method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({take:!controlling})})).json();
+  controlling = r.controlling; syncCtl();
+};
+function syncCtl(){
+  $("#ctl").textContent = controlling? "Release to daemon" : "Take control";
+  $("#ctl").classList.toggle("on", controlling);
+}
+
+SW.forEach(h=>{ const b=document.createElement("div"); b.className="sw";
+  b.style.background=h; b.onclick=()=>{ $("#pick").value=h;
+  paint(hex2rgb(h)); }; $("#swatches").appendChild(b); });
+
+async function poll(){
+  try{
+    const s = await (await fetch("/api/state")).json();
+    controlling = s.controlling; syncCtl();
+    const f=s.fan_state||{}, m=s.sensors||{};
+    const t=f.temps||{};
+    let h="";
+    const line=(k,v)=>h+=`<div class="stat"><span>${k}</span><b>${v}</b></div>`;
+    if(t.gpu_core!=null) line("GPU core", t.gpu_core+" °C");
+    if(t.gpu_vram!=null) line("VRAM", t.gpu_vram+" °C");
+    if(t.cpu_tctl!=null) line("CPU", t.cpu_tctl+" °C");
+    if(m.pump_rpm)  line("Pump", Math.round(m.pump_rpm)+" rpm");
+    if(m.rad_rpm)   line("Radiator", Math.round(m.rad_rpm)+" rpm");
+    Object.values(f.fans||{}).forEach(x=>
+      line(x.label, (x.duty??"–")+"% · "+(x.rpm??"–")+" rpm"));
+    if(f.claude) line("Claude", "working");
+    $("#tele").innerHTML = h || "<span class='muted'>no telemetry</span>";
+  }catch(e){}
+  setTimeout(poll, 2000);
+}
+boot();
+</script>
+</body>
+</html>

@@ -114,6 +114,15 @@ are excluded, which also avoids pointless writes to a Static-only device.
 
 Use `Get-CimInstance` via PowerShell instead.
 
+### A C rewrite was considered and rejected
+
+Measured first: the two daemons use ~120 MB and ~0.15 % of a 16-core CPU.
+A pure-C rewrite would mean reimplementing the HID protocol, an OpenRGB TCP
+client, the curve engine and the editor server — and the motherboard half
+would still need Python, because SuperIO access requires a signed ring0
+driver (LibreHardwareMonitor's). Rewriting the easy 60 % would leave two
+runtimes instead of one. MSVC builds fine here if that ever changes.
+
 ---
 
 ## Confirmed hardware map
@@ -138,8 +147,8 @@ Use `Get-CimInstance` via PowerShell instead.
 
 | Zone | LEDs | Contents |
 |---|---|---|
-| Aura Addressable 1 | 48 | Arctic cooler: pump 12 + 3 rad fans ×12. **Chain runs right→left** |
-| Aura Addressable 2 | 24 | GPU ZOTAC logo |
+| Aura Addressable 1 | 48 | Arctic cooler: pump 12 + 3 rad fans ×12 |
+| Aura Addressable 2 | 24 | GPU: LED 0–4 = "ZOTAC" text, 5–7 = logo. 8–23 tested, drive nothing |
 | Aura Mainboard | 1 | 4-pin 12 V header, empty |
 | Hue 2 Channel 1/2/3 | 24/24/8 | front F360 / bottom F420 / rear fan |
 | Corsair DRAM ×2 | 10 each | RAM, device ids 0 and 1 |
@@ -271,6 +280,51 @@ while the other was still working. Stale flags expire so a crashed session
 cannot strand the lights on.
 
 ---
+
+## LED Studio and spatial effects
+
+`led_studio.py` serves a browser editor on **http://localhost:8770**: the case
+drawn to scale, every LED individually clickable, live preview, and hardware
+written only on Apply.
+
+  * click an LED, or a fan's centre for the whole fan
+  * drag on empty space to rubber-band select; Shift extends
+  * Brush mode paints LEDs directly as you drag
+  * pattern generators apply across the selection in click order
+
+### Ring orientation - none of it was right by default
+
+Every fan ring needed a correction, and no two groups needed the same one.
+LED chain direction depends on how a fan is mounted and which way its cable
+exits; there is no convention. All of these were found by lighting one LED
+and looking:
+
+    Rad fan L/M/R      rot +90, mirror T-B
+    Side F360 x3       mirror L-R
+    Bottom F420 x3     rot -90, mirror L-R
+    Rear exhaust       rot -45
+    Arctic pump        mirror L-R + T-B
+
+`rot` rotates; `flip` mirrors left-right; `vflip` mirrors top-bottom. Both
+mirrors are applied AFTER the rotation so they act on final drawn positions -
+that is what makes "left/right are fine, just swap top and bottom" work.
+
+### Spatial rendering
+
+`case_layout.py` is the single source of truth and exposes `led_positions()`,
+giving all 132 LEDs a normalised (x, y) in the case. Effects are computed from
+PHYSICAL POSITION, not LED index - the old index-based wave scrambled at every
+fan boundary.
+
+Eight effects in `rgb_effects.SPATIAL`: wave, radial, spiral, comet, rain,
+plasma, breathe, fire. The daemon cycles through a configurable subset
+(`WAVE_CYCLE`, default 90 s each).
+
+Preview them live:
+
+    python effect_demo.py            # cycle all, 12s each
+    python effect_demo.py --effect plasma
+    python effect_demo.py --list
 
 ## Autostart
 

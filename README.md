@@ -466,9 +466,26 @@ only to the LEDs it covers, the way SignalRGB's effect blocks work. Toggle
 | arrows / shift-arrows | nudge 1 px / 10 px |
 | Delete | remove the selected box |
 
-While a layer is selected the effect buttons and the palette control set
-THAT layer's effect and palette rather than the global one - selecting a layer
-is the explicit act that redirects them. Layers stack: later ones paint over
+### Changing a layer's effect
+
+Three ways, because the first version had only the third and it was not
+discoverable: the effect grid sits ABOVE the layers section, so selecting a
+layer silently repointed buttons that were a whole scroll away.
+
+- **Effect: <name>** button in the layers section opens a categorised chooser.
+- **Double-click a layer row** opens the same chooser.
+- The main effect grid still works, and now SHOWS that it has retargeted: the
+  section header reads `ANIMATIONS -> LAYER 1` in accent colour, the grid
+  switches to the category holding that layer's effect, and it highlights the
+  layer's effect rather than the global one.
+
+`target_effect()` is the single source for "what am I editing", and everything
+that displays state asks it - so the panel cannot claim to be editing one
+thing while it edits another.
+
+While a layer is selected the palette control likewise sets THAT layer's
+palette rather than the global one - selecting a layer is the explicit act
+that redirects them. Layers stack: later ones paint over
 earlier ones (Raise/Lower reorders), each with its own opacity and a blend
 mode of normal, add or max. With no global effect running, the manually
 painted colours act as the background, so layers composite over painting

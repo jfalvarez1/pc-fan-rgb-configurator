@@ -405,8 +405,10 @@ class App:
 
     def _build_panel(self, p):
         def head(t):
-            tk.Label(p, text=t, bg=PANEL, fg=MUTED, font=FONT_H, anchor="w"
-                     ).pack(fill="x", padx=16, pady=(14, 6))
+            lb = tk.Label(p, text=t, bg=PANEL, fg=MUTED, font=FONT_H,
+                          anchor="w")
+            lb.pack(fill="x", padx=16, pady=(14, 6))
+            return lb
 
         def row():
             f = tk.Frame(p, bg=PANEL)
@@ -465,7 +467,7 @@ class App:
                                                      fill="x", padx=2)
         mkbtn(pr, ">", lambda: self.cycle_palette(1)).pack(side="left", padx=2)
 
-        head("ANIMATIONS")
+        self.anim_lbl = head("ANIMATIONS")
         # One category on screen at a time: 23 flat buttons is a wall, and it
         # also made the panel taller than the window. This keeps the panel a
         # fixed height no matter how many effects exist.
@@ -547,6 +549,9 @@ class App:
             side="left", expand=True, fill="x", padx=2)
         self.lyr_list = tk.Frame(p, bg=PANEL)
         self.lyr_list.pack(fill="x", padx=16, pady=(6, 2))
+        self.lyr_fx_btn = mkbtn(p, "Effect: (select a layer)",
+                                self.choose_effect, "accent")
+        self.lyr_fx_btn.pack(fill="x", padx=16, pady=(6, 2))
         self.opa_lbl = tk.Label(p, text="Layer opacity: 100%", bg=PANEL,
                                 fg=MUTED, font=FONT_L, anchor="w")
         self.opa_lbl.pack(fill="x", padx=16, pady=(8, 0))
@@ -661,6 +666,7 @@ class App:
         for b in self.catbtns.values():
             setbtn(b, False)
         setbtn(self.catbtns[cat], True)
+        self.cur_cat = cat
         for w in self.fxbox.winfo_children():
             w.destroy()
         names = [n for n in self.groups[cat] if n in fx.SPATIAL]
@@ -673,7 +679,7 @@ class App:
                 b.config(padx=2, font=FONT_L)
                 b.pack(side="left", expand=True, fill="x", padx=2)
                 self.fxbtns[name] = b
-                setbtn(b, name == self.effect)
+                setbtn(b, name == self.target_effect())
 
     # ---------- effect layers
 
@@ -720,6 +726,7 @@ class App:
         if self.layer_mode:
             self.sel_none()
         self.draw_layers()
+        self.sync_target()
         self.say("layer mode: drag to move, corners resize, top handle rotates"
                  if self.layer_mode else "layer mode off - LED selection active")
 
@@ -783,6 +790,98 @@ class App:
                     cx - r, cy - r, cx + r, cy + r,
                     fill="#ffffff", outline=col))
 
+    def target_effect(self):
+        """The effect the controls currently edit: the selected layer's, or
+        the global one. Everything that shows state asks this, so the panel
+        can never claim to be editing one thing while it edits another."""
+        if self.layer_mode and self.active:
+            return self.active.effect
+        return self.effect
+
+    def sync_target(self):
+        """Make the retarget VISIBLE.
+
+        Selecting a layer silently repointed the effect buttons at it, which
+        is invisible if you are looking at the layer section - the buttons are
+        a whole scroll away. Now the header names the target, the grid
+        highlights that layer's effect, and the layer section carries its own
+        effect button so the common case needs no scrolling at all.
+        """
+        lay = self.active if self.layer_mode else None
+        lbl = getattr(self, "anim_lbl", None)
+        if lbl is not None:
+            lbl.config(text=f"ANIMATIONS  →  {lay.name.upper()}" if lay
+                       else "ANIMATIONS",
+                       fg=ACCENT if lay else MUTED)
+        cur = self.target_effect()
+        for n, b in list(self.fxbtns.items()):
+            try:
+                setbtn(b, n == cur)
+            except tk.TclError:
+                self.fxbtns.pop(n, None)
+        btn = getattr(self, "lyr_fx_btn", None)
+        if btn is not None:
+            btn.config(text=f"Effect: {lay.effect}" if lay
+                       else "Effect: (select a layer)")
+
+    def reveal_effect(self, name):
+        """Switch the visible category to the one holding `name`, so the grid
+        actually shows the effect it is highlighting."""
+        for cat, names in self.groups.items():
+            if name in names and getattr(self, "cur_cat", None) != cat:
+                self.show_cat(cat)
+                return
+
+    def choose_effect(self):
+        """Pick an effect for the selected layer, without leaving the layer
+        section. Same categorised grid as the main panel."""
+        if not (self.layer_mode and self.active):
+            self.say("select a layer first - or turn on Layer mode")
+            return
+        lay = self.active
+        top = tk.Toplevel(self.root)
+        top.title(f"Effect for {lay.name}")
+        top.configure(bg=PANEL)
+        top.transient(self.root)
+        try:
+            top.iconbitmap(str(BASE.parent / "led_studio.ico"))
+        except Exception:
+            pass
+
+        def pick(name):
+            lay.effect = name
+            lay.t0 = time.monotonic()
+            top.destroy()
+            self.draw_layers()
+            self.refresh_layer_list()
+            self.reveal_effect(name)
+            self.say(f"{lay.name}: {name}")
+
+        tk.Label(top, text=f"{lay.name}  ·  currently {lay.effect}",
+                 bg=PANEL, fg=INK, font=FONT, anchor="w"
+                 ).pack(fill="x", padx=14, pady=(12, 4))
+        for cat, names in self.groups.items():
+            names = [n for n in names if n in fx.SPATIAL]
+            if not names:
+                continue
+            tk.Label(top, text=cat.upper(), bg=PANEL, fg=MUTED, font=FONT_H,
+                     anchor="w").pack(fill="x", padx=14, pady=(8, 2))
+            for i in range(0, len(names), 3):
+                r = tk.Frame(top, bg=PANEL)
+                r.pack(fill="x", padx=10)
+                for n in names[i:i + 3]:
+                    b = mkbtn(r, n, lambda x=n: pick(x))
+                    b.config(padx=2, font=FONT_L, width=12)
+                    b.pack(side="left", expand=True, fill="x", padx=2, pady=2)
+                    setbtn(b, n == lay.effect)
+        mkbtn(top, "Cancel", top.destroy, "ghost").pack(fill="x", padx=14,
+                                                        pady=(10, 12))
+        top.update_idletasks()
+        # beside the main window, not on top of the case it is previewing
+        rx, ry = self.root.winfo_rootx(), self.root.winfo_rooty()
+        top.geometry(f"+{rx + 60}+{max(0, ry + 40)}")
+        top.grab_set()
+
     def refresh_layer_list(self):
         """Rebuild the layer rows. Topmost first, matching how they paint."""
         for w in self.lyr_list.winfo_children():
@@ -806,11 +905,15 @@ class App:
                            font=FONT_L, anchor="w", cursor="hand2")
             txt.pack(side="left", fill="x", expand=True, pady=3)
             txt.bind("<Button-1>", lambda e, l=lay: self.select_layer(l))
+            txt.bind("<Double-Button-1>",
+                     lambda e, l=lay: (self.select_layer(l),
+                                       self.choose_effect()))
         if self.active:
             self.opacity.set(int(round(self.active.opacity * 100)))
             self.opa_lbl.config(text=f"Layer opacity: {self.opacity.get()}%")
             self.blend_btn.config(text=f"Blend: {self.active.blend}")
         self.draw_palette()
+        self.sync_target()
 
     def select_layer(self, lay):
         self.active = lay
@@ -818,6 +921,7 @@ class App:
             self.toggle_layers()
         self.draw_layers()
         self.refresh_layer_list()
+        self.reveal_effect(lay.effect)
 
     def layer_at(self, x, y):
         """Topmost layer whose body or handles are under the point."""
@@ -1045,6 +1149,7 @@ class App:
             except tk.TclError:
                 self.fxbtns.pop(n, None)
         self.effect = None
+        self.sync_target()
         self.say("animation stopped")
 
     def toggle_brush(self):

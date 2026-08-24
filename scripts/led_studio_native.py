@@ -354,7 +354,7 @@ class App:
         root.minsize(900, 620)
 
         self.pal_strip.bind("<Configure>", lambda e: self.draw_palette())
-        root.after(200, self.draw_palette)
+        self._pal_id = root.after(200, self.draw_palette)
         self.refresh_layer_list()
         self.show_tab("Lighting")
         self.load_state()
@@ -375,7 +375,7 @@ class App:
 
         self.hw.start()
         root.protocol("WM_DELETE_WINDOW", self.close)
-        root.after(UI_MS, self.tick)
+        self._tick_id = root.after(UI_MS, self.tick)
 
     # ---------- canvas
 
@@ -1217,7 +1217,7 @@ class App:
         if self.controlling:
             self.claim_flag()
         self.save_state()      # so a crash costs at most one interval
-        self.root.after(FLAG_BEAT_MS, self.beat_flag)
+        self._beat_id = self.root.after(FLAG_BEAT_MS, self.beat_flag)
 
     def toggle_ctl(self):
         self.controlling = not self.controlling
@@ -1309,7 +1309,7 @@ class App:
                     self.say(payload)
         except queue.Empty:
             pass
-        self.root.after(UI_MS, self.tick)
+        self._tick_id = self.root.after(UI_MS, self.tick)
 
     def show_tab(self, name):
         """Swap the left-hand view. The lighting canvas keeps animating either
@@ -1421,6 +1421,16 @@ class App:
 
     def close(self):
         self.save_state()
+        # Cancel the pending callbacks first. Without this Tk tries to run
+        # them after the interpreter is torn down and prints
+        # 'invalid command name ...tick' on the way out.
+        for attr in ("_tick_id", "_beat_id", "_pal_id"):
+            job = getattr(self, attr, None)
+            if job:
+                try:
+                    self.root.after_cancel(job)
+                except Exception:
+                    pass
         self.effect = None
         try:
             fan_side.GPU.stop()
@@ -1428,7 +1438,7 @@ class App:
             pass
         OVERRIDE.unlink(missing_ok=True)
         self.hw.stop_flag.set()
-        self.root.after(300, self.root.destroy)
+        self._destroy_id = self.root.after(300, self.root.destroy)
 
 
 if __name__ == "__main__":

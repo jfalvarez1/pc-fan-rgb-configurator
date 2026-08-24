@@ -17,8 +17,8 @@ import threading
 import tkinter as tk
 
 import fan_tuning
-from fan_panel import (ACCENT, BAD, BASE, DUTY_TOLERANCE, GOOD, INK, LINE,
-                       MUTED, STALE_AFTER, WARN, _load)
+from fan_panel import (ACCENT, BAD, BASE, GOOD, INK, LINE, MUTED,
+                       PUMP_TOLERANCE, STALE_AFTER, WARN, _load)
 
 FONT_S = ("Segoe UI", 9)
 FONT_M = ("Segoe UI", 10)
@@ -286,7 +286,7 @@ class FanSidePanel:
         if cmd is not None:
             txt.append(f"commanded {cmd:.0f}%")
         bad = (cmd is not None and act is not None
-               and abs(cmd - act) > DUTY_TOLERANCE)
+               and abs(cmd - act) > PUMP_TOLERANCE)
         self.pump_lbl.config(text="\n".join(txt) or "no data",
                              fg=BAD if bad else INK)
         self._pump_buttons(cmd)
@@ -304,6 +304,6 @@ class FanSidePanel:
         if d["mobo_age"] is None or d["mobo_age"] > STALE_AFTER:
             out.append("mobo_daemon not running")
         cmd, act = d["pump_cmd"], d["sens"].get("pump_duty")
-        if cmd is not None and act is not None and abs(cmd - act) > DUTY_TOLERANCE:
+        if cmd is not None and act is not None and abs(cmd - act) > PUMP_TOLERANCE:
             out.append(f"pump told {cmd:.0f}%, hardware at {act:.0f}%")
         return out

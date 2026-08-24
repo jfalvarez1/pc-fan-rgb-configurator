@@ -6,6 +6,9 @@ from measured thermal data rather than guesswork.
 
 **[USER_GUIDE.md](USER_GUIDE.md) is the how-to.** This file is the why: the
 hardware quirks, the measurements, and the bugs that produced each decision.
+**[TEST_PLAN.md](TEST_PLAN.md)** is what is checked, and by whom - `Run
+Tests.bat` covers 151 automated checks, and the rest is a short manual list
+for the things only a reboot or a pair of eyes can confirm.
 
 Everything here was derived by probing the actual hardware. Where a number
 appears, it was measured; where something is uncertain, it says so.

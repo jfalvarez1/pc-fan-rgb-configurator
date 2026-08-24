@@ -58,7 +58,19 @@ SRC_LABEL = {
 }
 
 STALE_AFTER = 20.0          # a state file older than this means "not running"
-DUTY_TOLERANCE = 6.0        # commanded vs measured, in duty points
+
+# Two different comparisons, two different tolerances - using one number for
+# both cried wolf on the radiator every time it sat inside its own deadband.
+#
+# The pump is a FIXED commanded value with no deadband and no ramping, so any
+# real deviation is a fault. The curve-driven headers legitimately lag: the
+# daemons ignore changes smaller than their deadband (6 for the radiator, 5
+# for the case fans) and hold a falling target for 45-60 s before acting. A
+# warning that fires during normal operation trains you to ignore it, which is
+# how the pump managed to sit at the wrong speed unnoticed in the first place.
+PUMP_TOLERANCE = 5.0        # commanded vs measured, fixed value
+CURVE_TOLERANCE = 14.0      # curve target vs measured, allows deadband + lag
+DUTY_TOLERANCE = PUMP_TOLERANCE      # kept for callers that import it
 
 T_MIN, T_MAX = 30.0, 95.0   # chart x range, degrees C
 
@@ -323,7 +335,7 @@ class FanPanel:
         # commanded vs measured: the only way a hijacked header shows up
         if duty is not None and lead is not None:
             want = max(d["min_duty"], min(d["max_duty"], round(lead_duty)))
-            if abs(want - duty) > DUTY_TOLERANCE:
+            if abs(want - duty) > CURVE_TOLERANCE:
                 msg = (f"{cfg.get('label', ch_id)}: curve asks {want}%, "
                        f"hardware reports {duty}%")
                 c.create_text(x + 14, y + 62, text="! " + msg, fill=WARN,
@@ -387,7 +399,7 @@ class FanPanel:
                           text=f"measured {act:.0f}%", fill="#ffffff",
                           font=FONT_S, anchor="e")
 
-        if cmd is not None and act is not None and abs(cmd - act) > DUTY_TOLERANCE:
+        if cmd is not None and act is not None and abs(cmd - act) > PUMP_TOLERANCE:
             msg = (f"pump commanded {cmd:.0f}% but hardware reports "
                    f"{act:.0f}% - another program owns this header")
             c.create_text(x + 14, y + h - 30, text="! " + msg, fill=BAD,
@@ -429,7 +441,7 @@ class FanPanel:
                     min_duty=d["rad_min"])
         self._legend(x + 46, y + h - 34, {"cpu_tctl": curve}, "cpu_tctl")
 
-        if want is not None and act is not None and abs(want - act) > DUTY_TOLERANCE:
+        if want is not None and act is not None and abs(want - act) > CURVE_TOLERANCE:
             msg = (f"radiator curve asks {want:.0f}% but hardware reports "
                    f"{act:.0f}%")
             self.notes.append(msg)

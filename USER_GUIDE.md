@@ -344,6 +344,14 @@ device's own onboard profile, not this software.
 
 ---
 
+## Checking nothing has broken
+
+`Run Tests.bat` runs 151 automated checks in about a minute - every clamp, the
+control handover, the layout, all 37 effects, and the editor's state handling.
+It touches no hardware and snapshots any file it writes, so it is safe while
+everything is running. See [TEST_PLAN.md](TEST_PLAN.md), which also lists the
+handful of checks that need a reboot or a pair of eyes.
+
 ## File reference
 
 Everything under `C:\HardwareControl\scripts`:
@@ -361,6 +369,8 @@ Everything under `C:\HardwareControl\scripts`:
 | `mobo_daemon.py` | pump + radiator daemon (elevated) |
 | `audio_levels.py` | speaker loopback capture for the VU meters |
 | `nzxt_util.py` | spaced, verified writes — the NZXT controller drops rapid ones |
+| `single_instance.py` | named-mutex guard so two daemons cannot drive one chip |
+| `selftest.py` | the regression suite behind `Run Tests.bat` |
 
 State files written at runtime: `sensors.json` (elevated daemon),
 `fan_state.json` (case daemon), `fan_tuning.json` (your trims),

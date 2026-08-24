@@ -14,7 +14,13 @@ function Show-Pump {
     param([string]$tag)
     try {
         $s = Get-Content "$scripts\sensors.json" -Raw | ConvertFrom-Json
-        $age = [math]::Round((Get-Date -UFormat %s) - $s.ts)
+        # NOT Get-Date -UFormat %s: this script runs under Windows
+        # PowerShell 5.1 (the .bat calls `powershell`, not `pwsh`), where that
+        # returns a LOCAL-time epoch - measured 17999 s adrift here, which
+        # printed the sensor age as "-18000s old". DateTimeOffset is correct
+        # under both 5.1 and 7.
+        $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+        $age = [math]::Round($now - $s.ts)
         Write-Host ("  {0,-8} pump {1,5:N1}%  {2,6:N0} rpm   radiator {3,5:N1}%  {4,6:N0} rpm   ({5}s old)" -f `
             $tag, $s.pump_duty, $s.pump_rpm, $s.rad_duty, $s.rad_rpm, $age)
     } catch { Write-Host "  $tag  (no sensors.json yet)" }

@@ -55,12 +55,31 @@ pythonw C:\HardwareControl\scripts\led_studio_native.py
 
 OpenRGB is started automatically if it is not already running.
 
+It **starts with Windows**, **takes control automatically**, and **restores
+whatever you had running** last time — effect, palette, speed, VU settings,
+layers and any painted colours.
+
 Two buttons at the top of the panel control whether anything reaches hardware:
 
-- **Take control** — takes ownership from `thermal_rgb_loop`, which stands down
-  while the flag file exists. Released automatically when you close the app.
+- **Take control** — already on at launch. Takes LED ownership from
+  `thermal_rgb_loop`, which stands down for lighting while the flag exists.
+  Released automatically when you close the app, and the daemon's own
+  temperature-reactive lighting resumes.
 - **Drive hardware** — actually writes colours. With this off you get a live
   preview in the window and nothing else. Both must be on to change your case.
+
+Because the editor now holds control for as long as it is open, the flag is
+**scoped**: it says `scope=leds`, so the daemon keeps running your **case fan
+curves** the whole time. It also carries the editor's process id, so if the
+app ever crashes the daemon takes lighting back on its next poll rather than
+standing down for the rest of the hour.
+
+To stop it starting with Windows, delete `LEDStudio.lnk` from your Startup
+folder (`Win+R` → `shell:startup`). To stop it taking control automatically,
+set `AUTO_CONTROL = False` near the top of `led_studio_native.py`.
+
+Your setup is saved to `led_studio_state.json` on close and every 20 seconds,
+so a crash costs at most the last edit.
 
 ---
 

@@ -251,12 +251,63 @@ def claude_thinking():
     return False
 
 
-def manual_override():
-    """True while the dashboard has taken manual control of the hardware."""
+def _pid_alive(pid):
     try:
-        return (time.time() - os.path.getmtime(MANUAL_FLAG)) < 3600
+        import psutil
+        return psutil.pid_exists(pid)
+    except Exception:
+        return True         # cannot tell - assume the owner is still there
+
+
+def manual_override(scope="all"):
+    """True while an editor has taken manual control of the given hardware.
+
+    SCOPE MATTERS. This flag used to mean "pause everything", because the old
+    dashboard drove fans as well as LEDs. LED Studio only ever touches LEDs -
+    so once it holds the flag continuously (it now takes control on launch and
+    is meant to stay open), an unscoped flag would stop the CASE FAN CURVES
+    from running for as long as the editor is open. The fans would hold their
+    last duty and never ramp under load.
+
+    A flag with no `scope=` line is from one of the older tools and still
+    pauses everything, which is what those tools expect.
+
+    The one-hour mtime window is kept for the older tools, which write the
+    flag once and never touch it again. It has two failure modes though: an
+    editor open for longer than an hour silently loses control back to this
+    daemon mid-session, and one that crashes keeps the daemon stood down for
+    up to an hour afterwards.
+
+    So newer writers stamp `pid=` into the flag and refresh it periodically.
+    If that process is gone the flag is stale immediately, whatever its mtime
+    says - which is the difference between trusting a claim and checking it.
+    """
+    try:
+        age = time.time() - os.path.getmtime(MANUAL_FLAG)
     except OSError:
         return False
+    if age >= 3600:
+        return False
+    try:
+        with open(MANUAL_FLAG) as fh:
+            body = fh.read()
+    except OSError:
+        return True
+    alive, declared = True, "all"
+    for line in body.splitlines():
+        line = line.strip()
+        if line.startswith("pid="):
+            try:
+                alive = _pid_alive(int(line[4:]))
+            except ValueError:
+                alive = True
+        elif line.startswith("scope="):
+            declared = line[6:].strip() or "all"
+    if not alive:
+        return False
+    if declared == "all" or scope == "all":
+        return True
+    return scope in [s.strip() for s in declared.split(",")]
 
 
 # ------------------------------------------------------------- SENSORS -----
@@ -631,7 +682,7 @@ class RGBOutput:
                 time.sleep(period)
                 continue
 
-            if manual_override():
+            if manual_override("leds"):
                 if shown != "manual":
                     print("[rgb] manual override -> dashboard has control",
                           flush=True)
@@ -862,8 +913,8 @@ def main():
         while True:
             now = time.monotonic()
 
-            if manual_override():
-                print("manual override active - dashboard has the hardware",
+            if manual_override("fans"):
+                print("manual override active - dashboard has the fans",
                       flush=True)
                 # forget commanded state so curves re-apply cleanly afterwards
                 commanded.clear()

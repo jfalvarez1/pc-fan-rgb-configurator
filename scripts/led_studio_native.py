@@ -29,7 +29,9 @@ Effects animate in the canvas immediately; the hardware is only written when
 so the daemon stands down, and releases on exit.
 """
 import ctypes
+import json
 import math
+import os
 import pathlib
 import queue
 import threading
@@ -57,6 +59,9 @@ except Exception:
 
 BASE = pathlib.Path(__file__).resolve().parent
 OVERRIDE = BASE / "manual_override.flag"
+STATE = BASE / "led_studio_state.json"
+AUTO_CONTROL = True      # take the hardware on launch, release it on close
+FLAG_BEAT_MS = 20000     # refresh the override flag this often while holding
 HOST, PORT = "127.0.0.1", 6742
 
 SCALE = 1.0
@@ -352,6 +357,10 @@ class App:
         root.after(200, self.draw_palette)
         self.refresh_layer_list()
         self.show_tab("Lighting")
+        self.load_state()
+        if AUTO_CONTROL and not self.controlling:
+            self.toggle_ctl()          # released again by close()
+        self.beat_flag()
 
         # Layer keys. Bound on the root so they work wherever focus sits, but
         # only act in layer mode - otherwise Delete would fire while the user
@@ -1187,10 +1196,33 @@ class App:
         self.hw_var.set(not self.hw_var.get())
         setbtn(self.hw_btn, self.hw_var.get())
 
+    def claim_flag(self):
+        """Stamp the override flag with our pid.
+
+        Refreshed on a timer, so a session lasting longer than the daemon's
+        one-hour window does not silently lose control mid-session - and the
+        pid lets the daemon spot a crashed editor at once instead of standing
+        down for the rest of that hour.
+        """
+        try:
+            # scope=leds: this editor never touches fans. Without the scope
+            # the daemon pauses the CASE FAN CURVES for as long as this window
+            # is open - which, now that it autostarts, is always.
+            OVERRIDE.write_text(
+                "led_studio_native\npid=%d\nscope=leds\n" % os.getpid())
+        except OSError:
+            pass
+
+    def beat_flag(self):
+        if self.controlling:
+            self.claim_flag()
+        self.save_state()      # so a crash costs at most one interval
+        self.root.after(FLAG_BEAT_MS, self.beat_flag)
+
     def toggle_ctl(self):
         self.controlling = not self.controlling
         if self.controlling:
-            OVERRIDE.write_text("led_studio_native")
+            self.claim_flag()
         else:
             OVERRIDE.unlink(missing_ok=True)
         self.ctl_btn.config(text="Release to daemon" if self.controlling
@@ -1312,7 +1344,83 @@ class App:
     def say(self, t):
         self.status.config(text=t)
 
+    def save_state(self):
+        """Remember the look for next launch. Written on close and after any
+        change worth keeping, so a crash costs at most the last edit."""
+        try:
+            data = {
+                "effect": self.effect,
+                "palette_name": self.palette_name,
+                "palettes": self.palettes,
+                "custom": [list(c) for c in self.custom],
+                "speed": self.speed.get(),
+                "bars": self.bars.get(),
+                "gain": self.gain.get(),
+                "layer_mode": self.layer_mode,
+                "layers": [{
+                    "name": l.name, "effect": l.effect, "palette": l.palette,
+                    "x": l.x, "y": l.y, "w": l.w, "h": l.h, "angle": l.angle,
+                    "opacity": l.opacity, "blend": l.blend, "on": l.on,
+                    "speed": l.speed,
+                } for l in self.layers],
+                "manual": [list(r.get("manual", (0, 0, 0))) for r in self.leds],
+            }
+            STATE.write_text(json.dumps(data, indent=1))
+        except Exception as exc:
+            self.say(f"could not save state: {type(exc).__name__}: {exc}")
+
+    def load_state(self):
+        """Restore the last look. Every field is optional and validated - a
+        stale file from an older layout must not stop the app starting."""
+        try:
+            data = json.loads(STATE.read_text())
+        except Exception:
+            return
+        try:
+            self.palettes = dict(data.get("palettes") or {})
+            self.palette_name = data.get("palette_name") or self.palette_name
+            cust = data.get("custom")
+            if isinstance(cust, list) and cust:
+                self.custom = [tuple(c) for c in cust]
+            for var, key in ((self.speed, "speed"), (self.bars, "bars"),
+                             (self.gain, "gain")):
+                if data.get(key) is not None:
+                    try:
+                        var.set(data[key])
+                    except Exception:
+                        pass
+            # manual colours only if the layout still matches
+            man = data.get("manual")
+            if isinstance(man, list) and len(man) == len(self.leds):
+                for r, c in zip(self.leds, man):
+                    self.set_led(r, tuple(c), manual=True)
+            for d in data.get("layers") or []:
+                try:
+                    lay = fx_layers.Layer(
+                        d["effect"], d["x"], d["y"], d["w"], d["h"],
+                        angle=d.get("angle", 0.0), palette=d.get("palette"),
+                        opacity=d.get("opacity", 1.0),
+                        blend=d.get("blend", "normal"),
+                        name=d.get("name"), speed=d.get("speed", 1.0))
+                    lay.on = bool(d.get("on", True))
+                    lay.t0 = time.monotonic()
+                    lay.reindex(self.leds)
+                    self.layers.append(lay)
+                except Exception:
+                    continue
+            self.set_bars()
+            self.set_gain()
+            eff = data.get("effect")
+            if eff and eff in fx.SPATIAL:
+                self.start_fx(eff)
+            n = len(self.layers)
+            self.say(f"restored: {eff or 'no effect'}"
+                     + (f", {n} layer(s)" if n else ""))
+        except Exception as exc:
+            self.say(f"could not restore state: {type(exc).__name__}: {exc}")
+
     def close(self):
+        self.save_state()
         self.effect = None
         try:
             fan_side.GPU.stop()

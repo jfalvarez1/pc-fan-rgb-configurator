@@ -682,6 +682,7 @@ possible. Measured: 207 level fetches per frame down to 1.
 
 | Component | Mechanism |
 |---|---|
+| `led_studio_native` | `LEDStudio.lnk` in the Startup folder |
 | `thermal_rgb_loop` | `ThermalRGBLoop.lnk` in the Startup folder |
 | `mobo_daemon` | Scheduled Task `HardwareControl-MoboDaemon`, AtLogon, Highest |
 | OpenRGB | Scheduled Task `HardwareControl-OpenRGB`, AtLogon +15 s, Highest |
@@ -699,6 +700,26 @@ Unregister-ScheduledTask -TaskName 'HardwareControl-OpenRGB'    -Confirm:$false
 ```
 
 ---
+
+## The override flag is scoped
+
+`manual_override.flag` used to mean "pause everything", because the old
+dashboard drove fans as well as LEDs. LED Studio only touches LEDs - so once
+it takes control on launch and stays open, an unscoped flag would stop the
+CASE FAN CURVES for as long as the window was up. The fans would hold their
+last duty and never ramp under load.
+
+Caught by measurement, not by reading: with the editor open, `fan_state.json`
+stopped advancing - "fan loop STALLED". The flag now carries `scope=leds`, and
+the fan loop asks `manual_override("fans")` while the lighting loop asks
+`manual_override("leds")`. A flag with no `scope=` line still pauses
+everything, which is what the older tools expect.
+
+It also carries `pid=`. The one-hour mtime window has two failure modes: an
+editor open longer than an hour silently loses control mid-session, and one
+that crashes keeps the daemon stood down for up to an hour. The editor
+refreshes the flag every 20 s, and a dead pid makes it stale at once -
+checking the claim rather than trusting it.
 
 ## Conflicts
 

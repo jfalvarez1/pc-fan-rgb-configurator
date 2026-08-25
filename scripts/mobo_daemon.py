@@ -80,6 +80,14 @@ PUMP_DRIFT = 5.0            # duty points from target before it counts as drift
 PUMP_DRIFT_POLLS = 3        # consecutive drifting polls before re-asserting
 PUMP_MAX_REASSERTS = 5      # then give up and warn rather than fight
 PUMP_NAG_SECONDS = 300.0    # once given up, repeat the warning this rarely
+PUMP_RESTART_LIMIT = 3      # self-restarts before giving up entirely
+
+# What actually happens, measured over 24k log samples: software control held
+# the pump at a flat 55.7% for 11.5 hours (correlation with CPU temperature:
+# 0.000), then a CPU spike from 46.9 to 62.5 C and the BOARD took the header
+# back. From that moment duty tracked CPU temperature with correlation +0.955 -
+# a curve, not a stray write. No amount of SetSoftware() got it back; only
+# starting a fresh process did.
 
 POLL = 3.0
 # CPU temperature is far jitterier than GPU - a 9800X3D moves several degrees
@@ -258,6 +266,7 @@ def main():
     fall_since = None
     drift_polls = 0
     reasserts = 0
+    restarts = 0
     last_nag = 0.0
     try:
         while True:
@@ -280,9 +289,39 @@ def main():
                                   f"({reasserts}/{PUMP_MAX_REASSERTS}).",
                                   flush=True)
                             try:
+                                # RELEASE, then re-take. Measured: a bare
+                                # SetSoftware() had no effect at all once the
+                                # board had reclaimed the header - 5 attempts,
+                                # zero change in duty, every time. The control
+                                # object still believes it is in software mode,
+                                # so writing the value again does not re-arm
+                                # the chip's manual mode. Dropping to default
+                                # first forces the transition.
+                                ctl[PUMP_HEADER].Control.SetDefault()
+                                time.sleep(0.3)
                                 ctl[PUMP_HEADER].Control.SetSoftware(pump_duty)
                             except Exception as exc:
                                 print(f"  re-assert failed: {exc}", flush=True)
+                        elif restarts < PUMP_RESTART_LIMIT:
+                            # A fresh process re-enumerates the hardware and
+                            # takes the header cleanly - that is the one thing
+                            # observed to work. Bounded, so a board that keeps
+                            # reclaiming cannot put this into a restart loop.
+                            restarts += 1
+                            print(f"pump still at {measured:.1f}% after "
+                                  f"{PUMP_MAX_REASSERTS} re-asserts - "
+                                  f"restarting to re-take {PUMP_HEADER} "
+                                  f"({restarts}/{PUMP_RESTART_LIMIT})",
+                                  flush=True)
+                            sys.stdout.flush()
+                            # Deliberately NOT restoring the header first.
+                            # os.execv does not run atexit handlers, so the
+                            # duty stays put across the swap and the fresh
+                            # process takes it from there - the same handoff
+                            # as killing and relaunching, which is the case
+                            # that was observed to work.
+                            os.execv(sys.executable,
+                                     [sys.executable] + sys.argv)
                         elif now - last_nag >= PUMP_NAG_SECONDS:
                             # Once it has given up, say so rarely. Repeating
                             # this every cycle produced 3500 identical lines,
@@ -291,9 +330,10 @@ def main():
                             last_nag = now
                             print(f"WARNING: pump still at {measured:.1f}% "
                                   f"after {PUMP_MAX_REASSERTS} attempts - "
-                                  f"another program owns {PUMP_HEADER}. "
-                                  f"Close FanControl / NZXT CAM / SignalRGB "
-                                  f"and restart this daemon.", flush=True)
+                                  f"cannot hold {PUMP_HEADER}. The board's "
+                                  f"Q-Fan has it; disable Q-Fan for this "
+                                  f"header in BIOS for a permanent fix.",
+                                  flush=True)
                 else:
                     drift_polls = 0
                     reasserts = 0

@@ -508,6 +508,39 @@ to throw away by accident. What IS adjustable is bounded:
 Nothing on the tab touches hardware. It reads only the files the daemons
 publish, so the view can never fight a daemon for a device.
 
+### The board takes the pump header back
+
+The pump was found at 26.7% again, and this time the cause was measurable
+rather than guessable. Over 24k log samples from one daemon run:
+
+```
+before:  duty flat at 55.7% for 11.5 hours   corr(cpu, duty) =  0.000
+break :  cpu spike 46.9 -> 62.5 C
+after :  duty follows temperature            corr(cpu, duty) = +0.955
+```
+
+Correlation of zero means we were holding it; +0.955 means a CURVE is driving
+it. Not a stray write from another program - the motherboard's Q-Fan reclaimed
+the header on a CPU spike and has been running its own curve since.
+
+Two things follow, and the second is the one that matters:
+
+* **`SetSoftware()` alone cannot take it back.** Five re-asserts, zero change
+  in measured duty, every time. The control object still believes it is in
+  software mode, so rewriting the value never re-arms the chip's manual mode.
+  The re-assert now calls `SetDefault()` first to force the transition.
+* **A fresh process does take it back** - that is what the earlier restarts
+  were actually doing. So after five failed re-asserts the daemon re-execs
+  itself, bounded to `PUMP_RESTART_LIMIT` so a board that keeps reclaiming
+  cannot cause a restart loop.
+
+A permanent fix is in BIOS: set the pump header's Q-Fan to manual/disabled so
+the board stops competing for it.
+
+This is also why the earlier "another program owns this header" message was
+wrong. It was a reasonable guess that survived because nothing checked it -
+the same failure mode as the original bug.
+
 ### Two daemons, silently fighting
 
 The pump was found at 24.7% (1369 rpm - below the 1500 rpm abort floor in the

@@ -1,0 +1,376 @@
+{
+ "error": null,
+ "curves": [
+  {
+   "fanType": 0,
+   "errorCode": 2,
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ]
+   ]
+  },
+  {
+   "fanType": 1,
+   "errorCode": 2,
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ]
+   ]
+  },
+  {
+   "fanType": 2,
+   "errorCode": 2,
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ]
+   ]
+  },
+  {
+   "fanType": 3,
+   "errorCode": 2,
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ]
+   ]
+  },
+  {
+   "fanType": 4,
+   "errorCode": 2,
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ]
+   ]
+  },
+  {
+   "fanType": 5,
+   "errorCode": 2,
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ]
+   ]
+  },
+  {
+   "fanType": 6,
+   "errorCode": 2,
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ]
+   ]
+  },
+  {
+   "fanType": 7,
+   "errorCode": 2,
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     0
+    ]
+   ]
+  }
+ ],
+ "fans": [
+  {
+   "source": null,
+   "profile": "SILENT",
+   "lowLimit": 200,
+   "mode": "PWM",
+   "errorCode": 0,
+   "fanType": 0
+  },
+  {
+   "source": "CPU",
+   "profile": "STANDARD",
+   "lowLimit": 200,
+   "mode": "AUTO",
+   "errorCode": 0,
+   "fanType": 1
+  },
+  {
+   "source": "CPU",
+   "profile": "STANDARD",
+   "lowLimit": 200,
+   "mode": "AUTO",
+   "errorCode": 0,
+   "fanType": 2
+  },
+  {
+   "source": "CPU",
+   "profile": "STANDARD",
+   "lowLimit": 200,
+   "mode": "AUTO",
+   "errorCode": 0,
+   "fanType": 3
+  },
+  {
+   "source": null,
+   "profile": null,
+   "lowLimit": 0,
+   "mode": null,
+   "errorCode": 3,
+   "fanType": 4
+  },
+  {
+   "source": null,
+   "profile": null,
+   "lowLimit": 0,
+   "mode": null,
+   "errorCode": 3,
+   "fanType": 5
+  },
+  {
+   "source": null,
+   "profile": null,
+   "lowLimit": 0,
+   "mode": null,
+   "errorCode": 3,
+   "fanType": 6
+  },
+  {
+   "source": null,
+   "profile": null,
+   "lowLimit": 0,
+   "mode": null,
+   "errorCode": 3,
+   "fanType": 7
+  }
+ ],
+ "available": true
+}

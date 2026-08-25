@@ -258,6 +258,23 @@ def main():
             print(f"pump ({PUMP_HEADER}) pinned at {pump_duty:.0f}% - fixed, no curve")
         except Exception as exc:
             print(f"pump set FAILED: {exc}")
+
+        # One-shot, read-only look at the board's own fan interface. On a
+        # background thread because it shells out to PowerShell eight times
+        # and must not delay taking the pump.
+        def _probe_asus():
+            try:
+                import asus_wmi
+                data = asus_wmi.probe()
+                (BASE / "asus_wmi_probe.json").write_text(
+                    json.dumps(data, indent=1))
+                for line in asus_wmi.summarise(data):
+                    print(line, flush=True)
+            except Exception as exc:
+                print(f"asus probe failed: {type(exc).__name__}: {exc}",
+                      flush=True)
+        import threading
+        threading.Thread(target=_probe_asus, daemon=True).start()
     else:
         print(f"[dry run] would pin pump ({PUMP_HEADER}) at {pump_duty:.0f}%")
 

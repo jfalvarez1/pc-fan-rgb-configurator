@@ -13,7 +13,9 @@ unacceptable inside a 30 fps UI callback.
 """
 import json
 import subprocess
+import sys
 import threading
+import time
 import tkinter as tk
 
 import fan_tuning
@@ -23,6 +25,8 @@ from fan_panel import (ACCENT, BAD, BASE, GOOD, INK, LINE, MUTED,
 FONT_S = ("Segoe UI", 9)
 FONT_M = ("Segoe UI", 10)
 BTN = "#232b39"
+NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+MOBO_TASK = "HardwareControl-MoboDaemon"
 
 
 class GpuTelemetry:
@@ -152,7 +156,20 @@ class FanSidePanel:
 
         head("STATUS")
         self.status_box = tk.Frame(p, bg=self.bg)
-        self.status_box.pack(fill="x", padx=16, pady=(0, 18))
+        self.status_box.pack(fill="x", padx=16, pady=(0, 6))
+        self._busy = False
+        self.restart_btn = tk.Label(
+            p, text="Restart daemons", bg=ACCENT, fg="#ffffff", font=FONT_M,
+            padx=10, pady=8, cursor="hand2", highlightthickness=1,
+            highlightbackground=ACCENT)
+        self.restart_btn.pack(fill="x", padx=16, pady=(2, 2))
+        self.restart_btn.bind("<Button-1>", lambda e: self.restart_daemons())
+        tk.Label(p, text="Re-pins the pump and reloads both curves. Use this\n"
+                         "if a header stops matching its commanded duty.\n"
+                         "If it still mismatches afterwards, another program\n"
+                         "owns the header - run Fix Cooling.bat (elevated).",
+                 bg=self.bg, fg=MUTED, font=FONT_S, anchor="w", justify="left"
+                 ).pack(fill="x", padx=16, pady=(0, 18))
 
     # ---- edits
 
@@ -185,6 +202,93 @@ class FanSidePanel:
         if self.on_change:
             self.on_change(f"pump set to {duty:.0f}% - restart mobo_daemon "
                            f"(elevated) for it to take effect")
+
+    # ---- restart
+
+    def restart_daemons(self):
+        """Stop and restart both daemons, then check the pump actually landed.
+
+        Done on a thread: schtasks plus the settle wait is several seconds,
+        and blocking the UI thread would freeze the whole editor.
+        """
+        if self._busy:
+            return
+        self._busy = True
+        self.restart_btn.config(text="Restarting...", bg=BTN, fg=INK)
+        threading.Thread(target=self._restart_worker, daemon=True).start()
+
+    def _restart_worker(self):
+        msgs = []
+
+        def run(args):
+            return subprocess.run(args, capture_output=True, text=True,
+                                  timeout=60, creationflags=NO_WINDOW)
+
+        # elevated daemon: the scheduled task owns it, and triggering a task
+        # you own needs no elevation even though the task runs elevated
+        try:
+            run(["schtasks", "/End", "/TN", MOBO_TASK])
+            time.sleep(2.0)
+            r = run(["schtasks", "/Run", "/TN", MOBO_TASK])
+            msgs.append("mobo_daemon restarted" if r.returncode == 0
+                        else f"mobo task: {(r.stdout or r.stderr).strip()[:50]}")
+        except Exception as exc:
+            msgs.append(f"mobo task failed: {type(exc).__name__}")
+
+        # case-fan daemon: stop any copy, then start one clean
+        try:
+            stopped = 0
+            try:
+                import psutil
+                for proc in psutil.process_iter(["pid", "cmdline"]):
+                    try:
+                        cl = " ".join(proc.info.get("cmdline") or [])
+                        if "thermal_rgb_loop" in cl:
+                            proc.terminate()
+                            stopped += 1
+                    except Exception:
+                        continue
+            except Exception:
+                pass
+            time.sleep(1.5)
+            exe = sys.executable
+            if exe.lower().endswith("python.exe"):
+                exe = exe[:-len("python.exe")] + "pythonw.exe"
+            subprocess.Popen([exe, "thermal_rgb_loop.py", "--apply", "--log",
+                              "--csv"], cwd=str(BASE), creationflags=NO_WINDOW)
+            msgs.append(f"thermal_rgb_loop restarted ({stopped} stopped)")
+        except Exception as exc:
+            msgs.append(f"thermal loop failed: {type(exc).__name__}")
+
+        # verify rather than assume - the whole point of this panel
+        time.sleep(11.0)
+        verdict = "could not read sensors.json"
+        try:
+            sens = _load("sensors.json") or {}
+            cfg = _load("pump_config.json") or {}
+            want, got = cfg.get("pump_duty"), sens.get("pump_duty")
+            rpm = sens.get("pump_rpm")
+            if want is not None and got is not None:
+                if abs(want - got) <= PUMP_TOLERANCE:
+                    verdict = f"OK - pump {got:.0f}% ({rpm:.0f} rpm)"
+                else:
+                    verdict = (f"STILL WRONG - told {want:.0f}%, reads "
+                               f"{got:.0f}%. Another program owns the header; "
+                               f"run Fix Cooling.bat")
+        except Exception as exc:
+            verdict = f"verify failed: {type(exc).__name__}"
+        msgs.append(verdict)
+        try:
+            self.restart_btn.after(0, self._restart_done, msgs)
+        except Exception:
+            pass
+
+    def _restart_done(self, msgs):
+        self._busy = False
+        self.restart_btn.config(text="Restart daemons", bg=ACCENT,
+                                fg="#ffffff")
+        if self.on_change:
+            self.on_change("  |  ".join(msgs))
 
     # ---- readouts
 

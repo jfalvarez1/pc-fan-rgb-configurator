@@ -255,6 +255,21 @@ min/max clamps still apply on top, so no trim can stall a fan.
 
 **Reset trims** returns all four to zero.
 
+### Restart daemons
+
+A button at the bottom of the Fans tab. It stops and restarts both daemons,
+which re-pins the pump and reloads both curves, then waits and **checks the
+pump actually landed** rather than reporting that it tried. The result appears
+in the status line.
+
+Use it when a header stops matching its commanded duty. If it still mismatches
+after a restart, another program owns that header and only an elevated process
+can clear it - run `Fix Cooling.bat`.
+
+The daemon also repairs this by itself now: if the pump drifts more than 5
+points from target for 3 consecutive polls it writes the value back, up to 5
+times, then stops fighting and says another program owns the header.
+
 ### The pump
 
 The pump is a **fixed duty and never a curve** — repeated speed cycling is a

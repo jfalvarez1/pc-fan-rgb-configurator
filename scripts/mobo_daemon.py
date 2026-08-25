@@ -79,6 +79,7 @@ RAD_MIN_DUTY = 40
 PUMP_DRIFT = 5.0            # duty points from target before it counts as drift
 PUMP_DRIFT_POLLS = 3        # consecutive drifting polls before re-asserting
 PUMP_MAX_REASSERTS = 5      # then give up and warn rather than fight
+PUMP_NAG_SECONDS = 300.0    # once given up, repeat the warning this rarely
 
 POLL = 3.0
 # CPU temperature is far jitterier than GPU - a 9800X3D moves several degrees
@@ -257,6 +258,7 @@ def main():
     fall_since = None
     drift_polls = 0
     reasserts = 0
+    last_nag = 0.0
     try:
         while True:
             now = time.monotonic()
@@ -281,12 +283,17 @@ def main():
                                 ctl[PUMP_HEADER].Control.SetSoftware(pump_duty)
                             except Exception as exc:
                                 print(f"  re-assert failed: {exc}", flush=True)
-                        else:
+                        elif now - last_nag >= PUMP_NAG_SECONDS:
+                            # Once it has given up, say so rarely. Repeating
+                            # this every cycle produced 3500 identical lines,
+                            # which buries the surrounding telemetry and makes
+                            # the warning easy to scroll past.
+                            last_nag = now
                             print(f"WARNING: pump still at {measured:.1f}% "
                                   f"after {PUMP_MAX_REASSERTS} attempts - "
                                   f"another program owns {PUMP_HEADER}. "
-                                  f"Close FanControl / NZXT CAM and restart "
-                                  f"this daemon.", flush=True)
+                                  f"Close FanControl / NZXT CAM / SignalRGB "
+                                  f"and restart this daemon.", flush=True)
                 else:
                     drift_polls = 0
                     reasserts = 0

@@ -209,6 +209,27 @@ def main():
         print("no SuperIO found")
         return 1
 
+    # Full sensor inventory, written once at startup. Read-only, and the
+    # only way to see what the board actually exposes - voltage rails, VRM
+    # and SoC temperatures, power draw - rather than guessing from a spec
+    # sheet. Nothing consumes this yet; it is evidence.
+    try:
+        inv = {}
+        for _hw in hw_all:
+            rows = []
+            for _s in _hw.Sensors:
+                rows.append({"name": _s.Name,
+                             "type": str(_s.SensorType),
+                             "value": (float(_s.Value)
+                                       if _s.Value is not None else None)})
+            if rows:
+                inv[_hw.Name] = rows
+        (BASE / "sensors_all.json").write_text(json.dumps(inv, indent=1))
+        print(f"sensor inventory: {sum(len(v) for v in inv.values())} sensors "
+              f"across {len(inv)} devices -> sensors_all.json")
+    except Exception as _exc:
+        print(f"inventory failed: {type(_exc).__name__}: {_exc}")
+
     ctl = {s.Name: s for s in sio.Sensors if str(s.SensorType) == "Control"}
     fan = {s.Name: s for s in sio.Sensors if str(s.SensorType) == "Fan"}
     # snapshot BEFORE touching anything - this is what restore writes back

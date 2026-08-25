@@ -1,34 +1,32 @@
-# runtime state - regenerated on every launch
-sensors.json
-manual_override.flag
-claude_thinking.flag
-claude_flags/
-__pycache__/
-*.pyc
 
-# logs
-*.log
-scripts/*.log
-
+# abandoned C experiment - see README on why the rewrite was not pursued
 # bundled third-party binaries (download them yourself, see README)
+# evidence behind the curve tuning. Only the noisy rolling log is ignored.
+# logs
+# machine-specific measurements are KEPT in data/ deliberately - they are the
+# runtime state - regenerated on every launch
+# session output lives in data/ ; scripts/ copies are runtime artefacts
+*.log
+*.pyc
 FanControl/
 OpenRGB/
+__pycache__/
 _downloads/
-
-# machine-specific measurements are KEPT in data/ deliberately - they are the
-# evidence behind the curve tuning. Only the noisy rolling log is ignored.
-scripts/thermal_log.csv
-scripts/thermal_log_old.csv
-
-# session output lives in data/ ; scripts/ copies are runtime artefacts
+_retired/
+claude_flags/
+claude_thinking.flag
+icon_preview.png
+manual_override.flag
+native/
+scripts/*.log
+scripts/asus_wmi_probe.json
 scripts/bench_*.csv
+scripts/fan_state.json
 scripts/lhm_report.txt
 scripts/mobo_fan_report.txt
 scripts/probe_one.txt
 scripts/pump_map.txt
-scripts/fan_state.json
-
-# abandoned C experiment - see README on why the rewrite was not pursued
-native/
-icon_preview.png
-_retired/
+scripts/sensors_all.json
+scripts/thermal_log.csv
+scripts/thermal_log_old.csv
+sensors.json

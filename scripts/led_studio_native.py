@@ -199,6 +199,16 @@ class Hardware(threading.Thread):
         self.resolved[el["id"]] = (None, None)
         return (None, None)
 
+    def forget(self, name_fragment):
+        """Drop a device from the written-state cache so the next frame is
+        sent even if the colours match. Needed when a device stops being
+        written: whatever it is holding is no longer what we think."""
+        for el in case_layout.LAYOUT:
+            if name_fragment in el.get("fx_group", "") or                name_fragment in el.get("device", "").lower():
+                dev, _off = self.resolved.get(el["id"], (None, None))
+                if dev is not None:
+                    self.written.pop(dev.id, None)
+
     def post(self, frame):
         """frame: {element_id: [(r,g,b), ...]}. Newest wins."""
         with self.lock:
@@ -478,8 +488,16 @@ class App:
         self.ctl_btn = mkbtn(p, "Take control", self.toggle_ctl)
         self.ctl_btn.pack(fill="x", padx=16, pady=2)
         self.hw_var = tk.BooleanVar(value=True)
+        self.kb_var = tk.BooleanVar(value=True)
         self.hw_btn = mkbtn(p, "Drive hardware", self.toggle_hw, "accent")
         self.hw_btn.pack(fill="x", padx=16, pady=2)
+        self.kb_btn = mkbtn(p, "Light keyboard", self.toggle_kb, "accent")
+        self.kb_btn.pack(fill="x", padx=16, pady=2)
+        tk.Label(p, text="The keyboard is also an input device. Turn this\n"
+                         "off if you get stuck or repeating keys - lighting\n"
+                         "it means writing its USB HID endpoint.",
+                 bg=PANEL, fg=MUTED, font=FONT_L, anchor="w", justify="left"
+                 ).pack(fill="x", padx=16, pady=(0, 2))
 
         head("SELECTION")
         r = row()
@@ -1120,9 +1138,13 @@ class App:
 
     def paint_at(self, x, y):
         rgb = self.hex2rgb(self.colour)
+        hit = False
         for r in self.leds:
             if (r["x"] - x) ** 2 + (r["y"] - y) ** 2 < 90:
                 self.set_led(r, rgb, manual=True)
+                hit = True
+        if hit:
+            self.push()
 
     # ---------- colour
 
@@ -1157,6 +1179,9 @@ class App:
         for r in self.leds:
             if (r["el"]["id"], r["i"]) in self.sel:
                 self.set_led(r, rgb, manual=True)
+        # tick() only pushes while an effect or a layer is live, so without
+        # this a painted colour reached the canvas and never the hardware.
+        self.push()
 
     def all_off(self):
         self.stop_fx()
@@ -1209,6 +1234,15 @@ class App:
         self.brush = not self.brush
         setbtn(self.brush_btn, self.brush)
 
+    def toggle_kb(self):
+        self.kb_var.set(not self.kb_var.get())
+        setbtn(self.kb_btn, self.kb_var.get())
+        if not self.kb_var.get():
+            self.hw.forget("keyboard")
+        self.say("keyboard lighting on" if self.kb_var.get()
+                 else "keyboard lighting OFF - it is left alone entirely")
+        self.push()
+
     def toggle_hw(self):
         self.hw_var.set(not self.hw_var.get())
         setbtn(self.hw_btn, self.hw_var.get())
@@ -1252,6 +1286,15 @@ class App:
         frame = {}
         for r in self.leds:
             frame.setdefault(r["el"]["id"], []).append(r["rgb"])
+        # The keyboard is the one device here that is also an INPUT device.
+        # Lighting it means writing its USB HID endpoint, and a keyboard that
+        # is busy servicing those writes can drop or repeat keystrokes. Turn
+        # this off and the keyboard is left alone entirely - everything else
+        # keeps working.
+        if not self.kb_var.get():
+            for el in case_layout.LAYOUT:
+                if el.get("fx_group") == "keyboard":
+                    frame.pop(el["id"], None)
         # Guard the failure that produced a stuck white key: a short list
         # silently shifts every LED after a gap and leaves the tail unwritten.
         for el in case_layout.LAYOUT:
@@ -1374,6 +1417,7 @@ class App:
                 "bars": self.bars.get(),
                 "gain": self.gain.get(),
                 "layer_mode": self.layer_mode,
+                "light_keyboard": bool(self.kb_var.get()),
                 "layers": [{
                     "name": l.name, "effect": l.effect, "palette": l.palette,
                     "x": l.x, "y": l.y, "w": l.w, "h": l.h, "angle": l.angle,
@@ -1394,6 +1438,9 @@ class App:
         except Exception:
             return
         try:
+            if data.get("light_keyboard") is False:
+                self.kb_var.set(False)
+                setbtn(self.kb_btn, False)
             self.palettes = dict(data.get("palettes") or {})
             self.palette_name = data.get("palette_name") or self.palette_name
             cust = data.get("custom")

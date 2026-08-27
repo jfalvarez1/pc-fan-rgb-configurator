@@ -188,34 +188,50 @@ def test_limits():
 def test_override():
     section("override flag")
     import thermal_rgb_loop as trl
-    flag = pathlib.Path(trl.MANUAL_FLAG)
-    with Restore(flag.name):
-        flag.write_text("led_studio_native\npid=%d\nscope=leds\n" % os.getpid())
-        chk("scope=leds pauses lighting", trl.manual_override("leds") is True)
-        chk("scope=leds LEAVES FAN CONTROL RUNNING",
-            trl.manual_override("fans") is False)
-        flag.write_text("dashboard")
-        chk("legacy flag (no scope) pauses lighting",
-            trl.manual_override("leds") is True)
-        chk("legacy flag (no scope) pauses fans",
-            trl.manual_override("fans") is True)
-        flag.write_text("x\nscope=all\n")
-        chk("explicit scope=all pauses fans",
-            trl.manual_override("fans") is True)
-        flag.write_text("led_studio_native\npid=999999\nscope=leds\n")
-        chk("dead owner releases lighting immediately",
-            trl.manual_override("leds") is False)
-        flag.write_text("led_studio_native\npid=notanumber\n")
-        chk("malformed pid fails safe (stays paused)",
-            trl.manual_override("leds") is True)
-        flag.write_text("")
-        chk("empty flag still pauses (fails safe)",
-            trl.manual_override("leds") is True)
+
+    # Point the daemon at a THROWAWAY flag for the duration. Using the real
+    # one raced with a live editor: it refreshes manual_override.flag every
+    # 20s, so the file could be rewritten mid-assertion. That produced a
+    # failure that vanished on re-run, which is worse than no test at all -
+    # it teaches you to re-run until green.
+    real = trl.MANUAL_FLAG
+    flag = BASE / "selftest_override.flag"
+    trl.MANUAL_FLAG = str(flag)
+    try:
+        _run_override_checks(trl, flag)
+    finally:
+        trl.MANUAL_FLAG = real
         if flag.exists():
             flag.unlink()
-        chk("no flag: nothing paused",
-            trl.manual_override("leds") is False
-            and trl.manual_override("fans") is False)
+
+
+def _run_override_checks(trl, flag):
+    flag.write_text("led_studio_native\npid=%d\nscope=leds\n" % os.getpid())
+    chk("scope=leds pauses lighting", trl.manual_override("leds") is True)
+    chk("scope=leds LEAVES FAN CONTROL RUNNING",
+        trl.manual_override("fans") is False)
+    flag.write_text("dashboard")
+    chk("legacy flag (no scope) pauses lighting",
+        trl.manual_override("leds") is True)
+    chk("legacy flag (no scope) pauses fans",
+        trl.manual_override("fans") is True)
+    flag.write_text("x\nscope=all\n")
+    chk("explicit scope=all pauses fans",
+        trl.manual_override("fans") is True)
+    flag.write_text("led_studio_native\npid=999999\nscope=leds\n")
+    chk("dead owner releases lighting immediately",
+        trl.manual_override("leds") is False)
+    flag.write_text("led_studio_native\npid=notanumber\n")
+    chk("malformed pid fails safe (stays paused)",
+        trl.manual_override("leds") is True)
+    flag.write_text("")
+    chk("empty flag still pauses (fails safe)",
+        trl.manual_override("leds") is True)
+    if flag.exists():
+        flag.unlink()
+    chk("no flag: nothing paused",
+        trl.manual_override("leds") is False
+        and trl.manual_override("fans") is False)
 
 
 # -------------------------------------------------------- single instance --
@@ -491,6 +507,34 @@ def test_app():
         chk("effect buttons retarget to the selected layer",
             lay.effect == "ripple" and app.effect == before_global,
             f"layer={lay.effect} global={app.effect}")
+
+        # --- intensity limits
+        app.sel_all()
+        app.paint_sel((200, 100, 50))
+        app.bright.set(100); app.set_bright()
+        chk("intensity 100% emits the intended colour",
+            app.leds[0]["out"] == (200, 100, 50), str(app.leds[0]["out"]))
+        app.bright.set(0); app.set_bright()
+        chk("intensity 0% emits black and cannot go negative",
+            app.leds[0]["out"] == (0, 0, 0)
+            and all(0 <= v for v in app.leds[0]["out"]))
+        app.bright.set(100); app.set_bright()
+        chk("dimming is lossless - the intended colour survives",
+            app.leds[0]["rgb"] == (200, 100, 50)
+            and app.leds[0]["out"] == (200, 100, 50))
+        for bad in (-50, 250):
+            app.bright.set(bad); app.set_bright()
+            chk(f"master intensity {bad} still yields valid RGB",
+                all(0 <= v <= 255 for r in app.leds for v in r["out"]))
+        app.bright.set(100); app.set_bright()
+        app.leds[0]["gain"] = 5.0          # out-of-range per-LED gain
+        app.reapply()
+        chk("an out-of-range per-LED gain cannot exceed 255",
+            all(0 <= v <= 255 for v in app.leds[0]["out"]),
+            str(app.leds[0]["out"]))
+        app.reset_intensity()
+        chk("reset returns every LED to full", all(r["gain"] == 1.0
+                                                   for r in app.leds))
 
         # state round trip - deselect first so this targets the global effect
         app.active = None

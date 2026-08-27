@@ -111,6 +111,21 @@ Painted colours are remembered as the *background*: if you then run layers
 without a global effect, the layers composite on top of your painting rather
 than erasing it.
 
+### Intensity
+
+Two sliders, multiplied together:
+
+- **Master intensity** scales every LED in the case and on the keyboard.
+- **Selected LEDs** sets a per-LED level for whatever is currently selected,
+  so one fan can sit dimmer than the rest.
+
+Both apply to painted colours and to running effects alike. Dimming is
+lossless: intensity scales what is EMITTED and never the intended colour, so
+turning brightness down and back up returns exactly the colour you set rather
+than one that has been quantised away a little more each time.
+
+**Reset intensities** returns everything to 100%.
+
 ### Running an effect
 
 Effects are grouped into categories — **Waves, Flow, Classic, Fill, Scatter,
@@ -358,6 +373,28 @@ listening to anything.
 device's own onboard profile, not this software.
 
 ---
+
+## What is saved, and where
+
+Everything survives a restart. Nothing needs exporting by hand.
+
+| What | File | Written when |
+|---|---|---|
+| effect, palette per effect, custom palette, speed | `led_studio_state.json` | on close and every 20 s |
+| VU bars and sensitivity | `led_studio_state.json` | " |
+| all effect layers - position, size, angle, blend, opacity | `led_studio_state.json` | " |
+| painted colours, per-LED intensity, master intensity | `led_studio_state.json` | " |
+| whether the keyboard is lit | `led_studio_state.json` | " |
+| fan curve trims | `fan_tuning.json` | the moment you move a slider |
+| pump duty | `pump_config.json` | the moment you pick one |
+| LED counts per zone | `rgb_zone_sizes.json` | set once during mapping |
+
+**Orientation is different.** Which way each fan ring is rotated or mirrored
+lives in `case_layout.py` as code, not in a settings file - every one of those
+transforms was derived by lighting single LEDs and checking them against the
+physical case. It persists because it is committed, and it is not editable
+from the UI, deliberately: there is one correct answer per ring and it is
+already recorded.
 
 ## Checking nothing has broken
 

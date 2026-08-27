@@ -296,6 +296,8 @@ class App:
         self.ldrag = None
         self.controlling = False
         self.colour = "#ff3aa2"
+        self.bright = tk.IntVar(value=100)     # master intensity
+        self.selbright = tk.IntVar(value=100)  # for the selection
         # palette per effect, so each remembers its own look
         self.palettes = {}
         self.palette_name = "synthwave"
@@ -431,7 +433,7 @@ class App:
                 if i in el.get("blanks", ()):
                     self.leds.append({"el": el, "i": i, "x": x, "y": y,
                                       "nx": nx, "ny": ny, "rgb": (0, 0, 0),
-                                      "manual": (0, 0, 0), "item": None,
+                                      "manual": (0, 0, 0), "item": None, "gain": 1.0,
                                       "cell": case_layout.cell_of(el, i)})
                     continue
                 h = el.get("cell", 27) / 2 - 2
@@ -444,7 +446,7 @@ class App:
                                      fill=LED_OFF, outline=LED_OFF_EDGE,
                                      width=1)
             rec = {"el": el, "i": i, "x": x, "y": y, "nx": nx, "ny": ny,
-                   "rgb": (0, 0, 0), "manual": (0, 0, 0), "item": item,
+                   "rgb": (0, 0, 0), "manual": (0, 0, 0), "item": item, "gain": 1.0,
                    "cell": case_layout.cell_of(el, i)}
             self.leds.append(rec)
             self.byel.setdefault(el["id"], []).append(rec)
@@ -522,6 +524,31 @@ class App:
                                                          expand=True,
                                                          fill="x", padx=2)
         mkbtn(p, "Blank selection", lambda: self.paint_sel((0, 0, 0)), "ghost"
+              ).pack(fill="x", padx=16, pady=2)
+
+        head("INTENSITY")
+        self.bright_lbl = tk.Label(p, text="Master intensity: 100%", bg=PANEL,
+                                   fg=INK, font=FONT_L, anchor="w")
+        self.bright_lbl.pack(fill="x", padx=16)
+        tk.Scale(p, from_=0, to=100, orient="horizontal", variable=self.bright,
+                 bg=PANEL, fg=INK, troughcolor=BTN, highlightthickness=0,
+                 bd=0, sliderrelief="flat", activebackground=ACCENT,
+                 font=FONT_L, showvalue=False, command=self.set_bright
+                 ).pack(fill="x", padx=14)
+        self.selbright_lbl = tk.Label(p, text="Selected LEDs: 100%", bg=PANEL,
+                                      fg=MUTED, font=FONT_L, anchor="w")
+        self.selbright_lbl.pack(fill="x", padx=16, pady=(6, 0))
+        tk.Scale(p, from_=0, to=100, orient="horizontal",
+                 variable=self.selbright, bg=PANEL, fg=INK, troughcolor=BTN,
+                 highlightthickness=0, bd=0, sliderrelief="flat",
+                 activebackground=ACCENT, font=FONT_L, showvalue=False,
+                 command=self.set_sel_bright).pack(fill="x", padx=14)
+        tk.Label(p, text="Master scales everything. The second slider sets a\n"
+                         "per-LED level for whatever is selected, so one fan\n"
+                         "can sit dimmer than the rest. Both are multiplied.",
+                 bg=PANEL, fg=MUTED, font=FONT_L, anchor="w", justify="left"
+                 ).pack(fill="x", padx=16, pady=(2, 2))
+        mkbtn(p, "Reset intensities", self.reset_intensity, "ghost"
               ).pack(fill="x", padx=16, pady=2)
 
         head("PALETTE")
@@ -1168,11 +1195,56 @@ class App:
             # remembered separately, so it survives as the background under
             # the layers rather than being overwritten by the last frame
             r["manual"] = r["rgb"]
+        # Intensity scales what is EMITTED, never the intended colour. Keeping
+        # them apart means turning brightness down and back up is lossless -
+        # scaling r["rgb"] in place would quantise the colour away a little
+        # more on every adjustment.
+        r["out"] = self.scaled(r)
         if r["item"] is None:
             return                      # matrix gap: addressed, never drawn
-        dark = sum(r["rgb"]) < 24
+        out = r["out"]
+        dark = sum(out) < 24
         self.cv.itemconfig(r["item"],
-                           fill=LED_OFF if dark else "#%02x%02x%02x" % r["rgb"])
+                           fill=LED_OFF if dark else "#%02x%02x%02x" % out)
+
+    def scaled(self, r):
+        """Emitted colour: intended colour x master intensity x this LED's own."""
+        f = (self.bright.get() / 100.0) * r.get("gain", 1.0)
+        if f >= 0.999:
+            return r["rgb"]
+        return tuple(int(v * f) for v in r["rgb"])
+
+    def reapply(self):
+        """Recompute every LED's output after an intensity change."""
+        for r in self.leds:
+            self.set_led(r, r["rgb"])
+        self.push()
+
+    def set_bright(self, _v=None):
+        self.bright_lbl.config(text=f"Master intensity: {self.bright.get()}%")
+        self.reapply()
+
+    def set_sel_bright(self, _v=None):
+        pct = self.selbright.get()
+        self.selbright_lbl.config(
+            text=f"Selected LEDs: {pct}%"
+            + ("" if self.sel else "   (nothing selected)"))
+        if not self.sel:
+            return
+        for r in self.leds:
+            if (r["el"]["id"], r["i"]) in self.sel:
+                r["gain"] = pct / 100.0
+        self.reapply()
+
+    def reset_intensity(self):
+        for r in self.leds:
+            r["gain"] = 1.0
+        self.bright.set(100)
+        self.selbright.set(100)
+        self.bright_lbl.config(text="Master intensity: 100%")
+        self.selbright_lbl.config(text="Selected LEDs: 100%")
+        self.reapply()
+        self.say("all intensities reset to 100%")
 
     def paint_sel(self, rgb=None):
         rgb = rgb or self.hex2rgb(self.colour)
@@ -1285,7 +1357,8 @@ class App:
             return
         frame = {}
         for r in self.leds:
-            frame.setdefault(r["el"]["id"], []).append(r["rgb"])
+            frame.setdefault(r["el"]["id"], []).append(
+                r.get("out", r["rgb"]))
         # The keyboard is the one device here that is also an INPUT device.
         # Lighting it means writing its USB HID endpoint, and a keyboard that
         # is busy servicing those writes can drop or repeat keystrokes. Turn
@@ -1418,6 +1491,9 @@ class App:
                 "gain": self.gain.get(),
                 "layer_mode": self.layer_mode,
                 "light_keyboard": bool(self.kb_var.get()),
+                "brightness": int(self.bright.get()),
+                "gains": [round(float(r.get("gain", 1.0)), 3)
+                          for r in self.leds],
                 "layers": [{
                     "name": l.name, "effect": l.effect, "palette": l.palette,
                     "x": l.x, "y": l.y, "w": l.w, "h": l.h, "angle": l.angle,
@@ -1441,6 +1517,20 @@ class App:
             if data.get("light_keyboard") is False:
                 self.kb_var.set(False)
                 setbtn(self.kb_btn, False)
+            if data.get("brightness") is not None:
+                try:
+                    self.bright.set(int(data["brightness"]))
+                    self.bright_lbl.config(
+                        text=f"Master intensity: {self.bright.get()}%")
+                except Exception:
+                    pass
+            gains = data.get("gains")
+            if isinstance(gains, list) and len(gains) == len(self.leds):
+                for r, g in zip(self.leds, gains):
+                    try:
+                        r["gain"] = max(0.0, min(1.0, float(g)))
+                    except (TypeError, ValueError):
+                        r["gain"] = 1.0
             self.palettes = dict(data.get("palettes") or {})
             self.palette_name = data.get("palette_name") or self.palette_name
             cust = data.get("custom")

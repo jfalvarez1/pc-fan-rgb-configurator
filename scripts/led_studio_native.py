@@ -130,6 +130,9 @@ class Hardware(threading.Thread):
         self.client = None
         self.resolved = {}
         self.buf = {}
+        self.written = {}       # dev_id -> what was last actually sent
+        self.writes = 0
+        self.skipped = 0
 
     def connect(self):
         try:
@@ -165,6 +168,7 @@ class Hardware(threading.Thread):
                 self.buf[d.id] = [(0, 0, 0)] * len(d.leds)
             self.client = c
             self.resolved = {}
+            self.written = {}       # cannot trust device state after reconnect
             n = sum(1 for d in c.devices if d is not None)
             self.out.put(("log", f"OpenRGB connected: {n} devices"))
             return True
@@ -231,11 +235,24 @@ class Hardware(threading.Thread):
                             buf[off + i] = c
                     touched[dev.id] = dev
                 for dev_id, dev in touched.items():
-                    dev.set_colors([RGBColor(*c) for c in self.buf[dev_id]],
-                                   fast=True)
+                    # Only write a device whose colours actually CHANGED.
+                    # Every frame used to write every device unconditionally -
+                    # 20 Hz of USB HID traffic to the keyboard for as long as
+                    # anything was running, even a completely static image.
+                    # That matters more now the editor autostarts and holds
+                    # control all day, and it is the kind of load that makes a
+                    # keyboard share its HID endpoint badly.
+                    cur = tuple(self.buf[dev_id])
+                    if self.written.get(dev_id) == cur:
+                        self.skipped += 1
+                        continue
+                    self.written[dev_id] = cur
+                    self.writes += 1
+                    dev.set_colors([RGBColor(*c) for c in cur], fast=True)
             except Exception as exc:
                 self.out.put(("log", f"write failed: {type(exc).__name__}: {exc}"))
                 self.client = None
+                self.written = {}
             time.sleep(period)
 
 

@@ -46,6 +46,7 @@ import fx_layers
 import openrgb_boot
 import rgb_effects as fx
 import usage_levels
+from led_render import LedRenderer
 from ui_widgets import RoundButton, Slider
 
 # Windows groups taskbar buttons by AppUserModelID. A script launched through
@@ -70,7 +71,12 @@ SCALE = 1.0
 W = int(case_layout.CANVAS_W * SCALE)
 H = int(case_layout.CANVAS_H * SCALE)
 HW_FPS = 20.0            # hardware write rate; the canvas runs faster
-UI_MS = 33               # ~30 fps canvas
+UI_MS = 33               # ~30 fps effect clock
+# The LED image is repainted more slowly than the effect runs. Compositing it
+# costs ~8 ms and Tk then redraws a 1130x1120 picture on top of that, which at
+# 30 fps is enough to make the window feel heavy. The hardware is only written
+# at 20 Hz anyway, so painting the preview faster buys nothing.
+PAINT_MS = 50            # ~20 fps for the rendered LED field
 
 
 # ---- palette -------------------------------------------------------------
@@ -84,6 +90,7 @@ ACCENT  = "#ff2d95"
 ACCENT2 = "#7c5cff"      # violet, for the header rule
 BTN     = "#1c2130"
 BTN_HOV = "#262d40"
+BTN_ON  = "#241b2c"      # an "on" toggle: tinted, not a slab of accent
 
 # An unlit LED must still be visible against the background, or the layout
 # reads as a field of empty holes.
@@ -110,20 +117,39 @@ FONT_L = (_F, 10)
 FONT_T = (_F, 16, "bold")
 
 
-def mkbtn(parent, text, cmd, kind="normal"):
+def mkbtn(parent, text, cmd, kind="normal", toggle=False):
     """Rounded flat button. Tk's own Button cannot lose its square corners
-    or its 3D relief, which is most of what dates a Tk window."""
+    or its 3D relief, which is most of what dates a Tk window.
+
+    `kind="accent"` is a PRIMARY ACTION and is filled solid. Toggles use
+    `toggle=True` instead: a status dot and a tinted background. Filling every
+    toggle with the accent colour produced a stack of identical pink slabs,
+    at which point the accent stopped marking anything out.
+    """
     bg = {"normal": BTN, "accent": ACCENT, "ghost": PANEL}[kind]
     b = RoundButton(parent, text=text, command=cmd, bg=bg,
                     fg="#ffffff" if kind == "accent" else INK,
                     hover="#ff56ab" if kind == "accent" else BTN_HOV,
                     border=ACCENT if kind == "accent" else LINE,
-                    font=FONT)
+                    dot=toggle, font=FONT)
     b._bg = bg
+    b._toggle = toggle
     return b
 
 
 def setbtn(b, active):
+    """Mark a button on or off.
+
+    A toggle shows an accent dot and accent text on a tinted background; it
+    does not become a solid accent block, because that is what a primary
+    action looks like and the two must stay distinguishable.
+    """
+    if getattr(b, "_toggle", False):
+        b._bg = BTN_ON if active else BTN
+        b.config(bg=b._bg, fg=ACCENT if active else MUTED,
+                 hover=BTN_HOV, dot_on=bool(active),
+                 highlightbackground=ACCENT if active else LINE)
+        return
     b._bg = ACCENT if active else BTN
     b.config(bg=b._bg, fg="#ffffff" if active else INK,
              hover="#ff56ab" if active else BTN_HOV,
@@ -374,6 +400,15 @@ class App:
         self.panel_light.pack(fill="both", expand=True)
         self.panel_fan = tk.Frame(inner, bg=PANEL)
 
+        # One anti-aliased image under everything, redrawn each frame. Tk
+        # cannot antialias a canvas item, so the LEDs are composited in numpy
+        # and uploaded as a single picture instead.
+        self.renderer = LedRenderer(W, H, master=self.cv)
+        self.led_img = self.cv.create_image(0, 0, anchor="nw")
+        self.cv.tag_lower(self.led_img)
+        self._dirty = True
+        self._last_paint = 0.0
+
         self._build_case()
         self._build_panel(self.panel_light)
         self.fan_side = fan_side.FanSidePanel(self.panel_fan, PANEL,
@@ -453,15 +488,9 @@ class App:
                                       "cell": case_layout.cell_of(el, i),
                                       "usrc": case_layout.usage_source(el)})
                     continue
-                h = el.get("cell", 27) / 2 - 2
-                item = c.create_rectangle(x - h, y - h, x + h, y + h,
-                                          fill=LED_OFF, outline=LED_OFF_EDGE,
-                                          width=1)
-            else:
-                r = 8.5 if el["count"] <= 12 else 7.0
-                item = c.create_oval(x - r, y - r, x + r, y + r,
-                                     fill=LED_OFF, outline=LED_OFF_EDGE,
-                                     width=1)
+                item = "led"     # drawn into the rendered image, not as an
+            else:                #  item; kept non-None so selection works
+                item = "led"
             rec = {"el": el, "i": i, "x": x, "y": y, "nx": nx, "ny": ny,
                    "rgb": (0, 0, 0), "manual": (0, 0, 0), "item": item, "gain": 1.0,
                    "cell": case_layout.cell_of(el, i),
@@ -525,17 +554,20 @@ class App:
         rule.bind("<Configure>", _rule)
 
         head("HARDWARE")
-        self.ctl_btn = mkbtn(p, "Take control", self.toggle_ctl)
+        self.ctl_btn = mkbtn(p, "Take control", self.toggle_ctl,
+                             toggle=True)
         self.ctl_btn.pack(fill="x", padx=16, pady=2)
         self.hw_var = tk.BooleanVar(value=True)
         self.kb_var = tk.BooleanVar(value=True)
         self.keep_var = tk.BooleanVar(value=True)   # lighting persists on exit
-        self.hw_btn = mkbtn(p, "Drive hardware", self.toggle_hw, "accent")
+        self.hw_btn = mkbtn(p, "Drive hardware", self.toggle_hw,
+                            toggle=True)
         self.hw_btn.pack(fill="x", padx=16, pady=2)
-        self.kb_btn = mkbtn(p, "Light keyboard", self.toggle_kb, "accent")
+        self.kb_btn = mkbtn(p, "Light keyboard", self.toggle_kb,
+                            toggle=True)
         self.kb_btn.pack(fill="x", padx=16, pady=2)
         self.keep_btn = mkbtn(p, "Keep lighting on exit", self.toggle_keep,
-                              "accent")
+                              toggle=True)
         self.keep_btn.pack(fill="x", padx=16, pady=2)
         tk.Label(p, text="The keyboard is also an input device. Turn this\n"
                          "off if you get stuck or repeating keys - lighting\n"
@@ -548,7 +580,7 @@ class App:
         for txt, fn in (("All", self.sel_all), ("None", self.sel_none),
                         ("Invert", self.sel_inv)):
             mkbtn(r, txt, fn).pack(side="left", expand=True, fill="x", padx=2)
-        self.brush_btn = mkbtn(p, "Brush", self.toggle_brush)
+        self.brush_btn = mkbtn(p, "Brush", self.toggle_brush, toggle=True)
         self.brush_btn.pack(fill="x", padx=16, pady=2)
 
         head("COLOUR")
@@ -682,7 +714,8 @@ class App:
                          "above the top edge rotates.",
                  bg=PANEL, fg=MUTED, font=FONT_L, anchor="w",
                  justify="left").pack(fill="x", padx=16, pady=(0, 4))
-        self.lyr_btn = mkbtn(p, "Layer mode", self.toggle_layers)
+        self.lyr_btn = mkbtn(p, "Layer mode", self.toggle_layers,
+                             toggle=True)
         self.lyr_btn.pack(fill="x", padx=16, pady=2)
         r = row()
         mkbtn(r, "+ Add", self.add_layer, "accent").pack(
@@ -1124,14 +1157,10 @@ class App:
         return None
 
     def refresh_sel(self):
-        for r in self.leds:
-            if r["item"] is None:
-                continue
-            key = (r["el"]["id"], r["i"])
-            on = key in self.sel
-            self.cv.itemconfig(r["item"],
-                               outline="#ffffff" if on else LED_OFF_EDGE,
-                               width=2 if on else 1)
+        # The selection ring is drawn into the rendered image, so there is
+        # nothing to reconfigure here - just ask for a repaint.
+        self._dirty = True
+        self.repaint(force=True)
 
     def add(self, r, keep):
         if not keep:
@@ -1272,10 +1301,7 @@ class App:
         r["out"] = self.scaled(r)
         if r["item"] is None:
             return                      # matrix gap: addressed, never drawn
-        out = r["out"]
-        dark = sum(out) < 24
-        self.cv.itemconfig(r["item"],
-                           fill=LED_OFF if dark else "#%02x%02x%02x" % out)
+        self._dirty = True
 
     def scaled(self, r):
         """Emitted colour: intended colour x master intensity x this LED's own."""
@@ -1480,6 +1506,26 @@ class App:
                                    + [(0, 0, 0)] * el["count"])[:el["count"]]
         self.hw.post(frame)
 
+    def repaint(self, force=False):
+        """Composite the LED field, at most every PAINT_MS.
+
+        Skipped entirely when nothing has changed, so a static image costs
+        nothing at all rather than re-rendering the same picture 30 times a
+        second.
+        """
+        if not (self._dirty or force):
+            return
+        now = time.monotonic()
+        if not force and (now - self._last_paint) * 1000.0 < PAINT_MS:
+            return
+        self._last_paint = now
+        self._dirty = False
+        try:
+            photo = self.renderer.render(self.leds, selected=self.sel)
+            self.cv.itemconfigure(self.led_img, image=photo)
+        except Exception as exc:
+            self.say(f"render error: {type(exc).__name__}: {exc}")
+
     def tick(self):
         try:
             live = [l for l in self.layers if l.on and l.effect in fx.SPATIAL]
@@ -1551,6 +1597,8 @@ class App:
         except Exception as exc:
             self.say(f"animation error: {type(exc).__name__}: {exc}")
             self.effect = None
+        self.repaint()
+
         if self.tab == "Fans":
             self.fan_ticks += 1
             if self.fan_ticks % 30 == 0:

@@ -99,6 +99,53 @@ LAYOUT = [
 CANVAS_W, CANVAS_H = 1130.0, 1120.0
 
 
+# Razer Huntsman Mini - a standard 60% ANSI layout, 15 units wide by 5 rows.
+# Keys are NOT all one size: Backspace is 2u, Tab 1.5u, Caps 1.75u, Enter
+# 2.25u, the shifts 2.25u and 2.75u, and the spacebar 6.25u. Drawing it as a
+# uniform 15x5 grid put visible gaps where the wide keys should be and put
+# every key in slightly the wrong place.
+#
+# Each entry is (led_index, width_in_units). The LED matrix has 15 slots per
+# row and a wide key occupies ONE of them, so the unused slots are exactly the
+# element's `blanks` - they exist on the wire but not in plastic.
+KEY_ROWS = [
+    [(1, 1), (2, 1), (3, 1), (4, 1), (5, 1), (6, 1), (7, 1), (8, 1), (9, 1),
+     (10, 1), (11, 1), (12, 1), (13, 1), (14, 2)],
+    [(16, 1.5), (17, 1), (18, 1), (19, 1), (20, 1), (21, 1), (22, 1), (23, 1),
+     (24, 1), (25, 1), (26, 1), (27, 1), (28, 1), (29, 1.5)],
+    [(31, 1.75), (32, 1), (33, 1), (34, 1), (35, 1), (36, 1), (37, 1),
+     (38, 1), (39, 1), (40, 1), (41, 1), (42, 1), (44, 2.25)],
+    [(46, 2.25), (48, 1), (49, 1), (50, 1), (51, 1), (52, 1), (53, 1),
+     (54, 1), (55, 1), (56, 1), (57, 1), (59, 2.75)],
+    [(61, 1.25), (62, 1.25), (63, 1.25), (67, 6.25), (71, 1.25), (72, 1.25),
+     (73, 1.25), (74, 1.25)],
+]
+KEY_UNITS = 15.0          # every row is exactly this wide
+
+
+def key_geometry(el):
+    """{led_index: (cx, cy, w, h)} in canvas pixels for a grid element.
+
+    Positions come from the real key widths, so the rendering matches the
+    keyboard in front of you rather than a grid of equal squares.
+    """
+    if el.get("kind") != "grid":
+        return {}
+    cell = float(el.get("cell", 27))
+    rows = len(KEY_ROWS)
+    total_w = KEY_UNITS * cell
+    left = el["x"] - total_w / 2
+    top = el["y"] - rows * cell / 2
+    out = {}
+    for r, row in enumerate(KEY_ROWS):
+        x = left
+        for idx, units in row:
+            w = units * cell
+            out[idx] = (x + w / 2, top + r * cell + cell / 2, w, cell)
+            x += w
+    return out
+
+
 def _ring_xy(el, i):
     """Position of LED i within an element, honouring rot / flip / vflip."""
     kind = el.get("kind", "fan")
@@ -107,6 +154,11 @@ def _ring_xy(el, i):
         h = n * 21.0
         return el["x"], el["y"] - h / 2 + 10 + i * 21
     if kind == "grid":
+        geo = key_geometry(el)
+        if i in geo:
+            return geo[i][0], geo[i][1]
+        # a matrix slot with no key on it: park it under its row so it never
+        # lands on a real key and never skews the effect-space bounds
         cols, cell = el.get("cols", 15), el.get("cell", 27)
         rows = el.get("rows", 5)
         cx = el["x"] - (cols - 1) * cell / 2

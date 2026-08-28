@@ -33,7 +33,12 @@ class RoundButton(tk.Canvas):
 
     def __init__(self, parent, text="", command=None, bg="#1c2130",
                  fg="#eef1f7", hover=None, border=None, font=("Segoe UI", 11),
-                 radius=9, padx=12, pady=9, **kw):
+                 radius=9, padx=12, pady=9, dot=False, dot_on=False,
+                 dot_colour="#ff2d95", dot_off="#3a4256", **kw):
+        self._dot = dot
+        self._dot_on = dot_on
+        self._dot_colour = dot_colour
+        self._dot_off = dot_off
         self._text = text
         self._bg = bg
         self._fg = fg
@@ -78,9 +83,21 @@ class RoundButton(tk.Canvas):
         fill = self._hover if self._hot else self._bg
         self._shape = rounded(self, 1, 1, w - 1, h - 1, self._radius,
                               fill=fill, outline=self._border)
-        self._label = self.create_text(w / 2, h / 2, text=self._text,
-                                       fill=self._fg, font=self._font,
-                                       justify="center")
+        # A status dot makes a toggle readable as a toggle. Without it an
+        # "on" button and a primary action button look identical, which is
+        # what a panel of solid accent-filled toggles ends up as.
+        if self._dot:
+            cy = h / 2
+            self.create_oval(15, cy - 4, 23, cy + 4,
+                             fill=self._dot_colour if self._dot_on
+                             else self._dot_off, outline="")
+            self._label = self.create_text(33, cy, text=self._text,
+                                           fill=self._fg, font=self._font,
+                                           anchor="w")
+        else:
+            self._label = self.create_text(w / 2, h / 2, text=self._text,
+                                           fill=self._fg, font=self._font,
+                                           justify="center")
 
     # ---- Label-compatible surface
 
@@ -88,6 +105,7 @@ class RoundButton(tk.Canvas):
         redraw = False
         for key, attr in (("text", "_text"), ("bg", "_bg"), ("fg", "_fg"),
                           ("hover", "_hover"), ("font", "_font"),
+                          ("dot_on", "_dot_on"), ("dot", "_dot"),
                           ("highlightbackground", "_border")):
             if key in kw:
                 setattr(self, attr, kw.pop(key))

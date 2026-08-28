@@ -34,6 +34,7 @@ import math
 import os
 import pathlib
 import queue
+import sys
 import threading
 import time
 import tkinter as tk
@@ -437,6 +438,7 @@ class App:
         self._pal_id = root.after(200, self.draw_palette)
         self.refresh_layer_list()
         self.show_tab("Lighting")
+        self.stop_player()          # never share the LEDs with a player
         self.load_state()
         if AUTO_CONTROL and not self.controlling:
             self.toggle_ctl()          # released again by close()
@@ -1398,6 +1400,53 @@ class App:
         self.frames = 0
         self.say(f"animating: {name}")
 
+    def start_player(self):
+        """Hand the running animation to led_player so it carries on.
+
+        Without this, keeping the lighting froze the last frame - the colours
+        stayed but the movement stopped, which is not what "keep it running"
+        means to anyone watching the case.
+        """
+        try:
+            import subprocess
+            exe = sys.executable
+            if exe.lower().endswith("python.exe"):
+                exe = exe[:-len("python.exe")] + "pythonw.exe"
+            subprocess.Popen(
+                [exe, "led_player.py"], cwd=str(BASE),
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        except Exception as exc:
+            self.say(f"could not start the player: {type(exc).__name__}")
+
+    def stop_player(self):
+        """Stop any player before taking the LEDs, so two processes never
+        drive them at once."""
+        try:
+            import psutil
+        except Exception:
+            return
+        me = os.getpid()
+        for proc in psutil.process_iter(["pid", "name", "cmdline"]):
+            try:
+                if proc.info["pid"] == me:
+                    continue
+                # Match a PYTHON process with led_player.py as an actual
+                # argument. Searching the joined command line for the
+                # substring matched anything that merely mentioned the name -
+                # an editor with the file open, a grep, or the very shell that
+                # launched this - and terminated it. Killing a bystander
+                # because its command line contains a filename is not a
+                # cleanup, it is a hazard.
+                if not (proc.info.get("name") or "").lower().startswith(
+                        "python"):
+                    continue
+                argv = proc.info.get("cmdline") or []
+                if any(os.path.basename(a).lower() == "led_player.py"
+                       for a in argv):
+                    proc.terminate()
+            except Exception:
+                continue
+
     def apply_now(self):
         """Force everything to the hardware right now.
 
@@ -1764,6 +1813,9 @@ class App:
 
     def close(self):
         self.save_state()
+        # Recorded BEFORE self.effect is cleared further down, or the handoff
+        # would always see "nothing was running" and never start.
+        animating = bool(self.effect or any(l.on for l in self.layers))
         if self.keep_var.get() and self.controlling:
             # Push the final frame and give the hardware thread a moment to
             # write it, THEN mark the flag as held. Without the wait the
@@ -1801,6 +1853,8 @@ class App:
         if not getattr(self, "_holding", False):
             OVERRIDE.unlink(missing_ok=True)
         self.hw.stop_flag.set()
+        if self._holding and animating:
+            self.start_player()
         self._destroy_id = self.root.after(300, self.root.destroy)
 
 

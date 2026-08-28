@@ -579,6 +579,7 @@ def test_app():
     import tkinter as tk
     import fx_layers
     import led_studio_native as ls
+    import rgb_effects as fx
 
     with Restore("led_studio_state.json", "manual_override.flag"):
         p = BASE / "led_studio_state.json"
@@ -653,22 +654,25 @@ def test_app():
         # tick() looked healthy - which is exactly how "usage" shipped broken:
         # a stale lookup key raised KeyError, tick() swallowed it, and the
         # effect silently stopped posting.
-        posted = []
-        real_post = app.hw.post
-        app.hw.post = lambda f: posted.append(f)
+        prev_post = app.hw.post
+        frames = []
+        app.hw.post = lambda f: frames.append(f)
         app.controlling = True
         app.hw_var.set(True)
+        was_active = app.active
+        app.active = None       # or the effect buttons retarget to the layer
         dead = []
         for name in sorted(fx.SPATIAL):
-            posted.clear()
+            frames.clear()
             app.start_fx(name)
             app.tick()
-            if app.effect != name or not posted:
+            if app.effect != name or not frames:
                 dead.append(f"{name}: {app.status.cget('text')[:44]}")
         chk(f"all {len(fx.SPATIAL)} effects render AND post a frame",
             not dead, "; ".join(dead[:3]))
         app.stop_fx()
-        app.hw.post = real_post
+        app.active = was_active
+        app.hw.post = prev_post
 
         # --- intensity limits
         app.sel_all()

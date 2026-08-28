@@ -397,13 +397,32 @@ def test_usage():
     import usage_levels
 
     c0 = fx.usage_colour(0.0)
-    chk(f"idle reads blue {c0}", c0[2] > 200 and c0[0] < 60)
+    chk(f"idle reads strong green {c0}", c0[1] > 200 and c0[0] < 60)
     lo = fx.usage_colour(0.12)
-    chk(f"light load reads green {lo}", lo[1] > 200 and lo[0] < 80)
+    chk(f"light load is still green {lo}", lo[1] > 200 and lo[0] < 100)
     hi = fx.usage_colour(1.0)
-    chk(f"full load reads red {hi}", hi[0] > 200 and hi[1] < 60)
+    chk(f"full load reads red {hi}", hi[0] > 200 and hi[1] < 40)
+
+    # The complaint that produced this ramp was that a loaded machine looked
+    # orange rather than red. Assert the top of the scale is unambiguous.
+    for u in (0.85, 0.9, 0.95, 1.0):
+        c = fx.usage_colour(u)
+        chk(f"load {u:.2f} reads RED not orange {c}",
+            c[0] > 200 and c[1] <= 40)
+    def band(pred):
+        return sum(1 for i in range(101) if pred(fx.usage_colour(i / 100)))
+    orange = band(lambda c: c[0] > 200 and 60 < c[1] <= 150)
+    red = band(lambda c: c[0] > 200 and c[1] <= 60)
+    chk(f"orange is a narrow transition, not the top of the scale "
+        f"({orange}% orange vs {red}% red)", orange < red)
+    chk("nothing on the scale is blue-dominant",
+        all(fx.usage_colour(i / 100)[2] <= 60 for i in range(101)))
+
     chk("red never falls as load rises",
         all(fx.usage_colour(i / 50)[0] <= fx.usage_colour((i + 1) / 50)[0] + 1
+            for i in range(50)))
+    chk("green never rises as load rises",
+        all(fx.usage_colour(i / 50)[1] >= fx.usage_colour((i + 1) / 50)[1] - 1
             for i in range(50)))
     chk("usage below 0 and above 1 are clamped",
         fx.usage_colour(-99) == c0 and fx.usage_colour(99) == hi)

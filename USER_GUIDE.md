@@ -172,9 +172,9 @@ rings, which have no rows or columns, it keeps its smooth spatial form.
 Two effects in the **System** category turn the case into a load readout
 rather than decoration.
 
-**Blue** when a component is idle, **green** under light load, through yellow
-and orange to **red** when it is pinned. Each run of LEDs reports a different
-resource, so you can see at a glance which part of the machine is busy:
+**Strong green** when a component is idle, through yellow to **red** when it
+is pinned. Each run of LEDs reports a different resource, so you can see at a
+glance which part of the machine is busy:
 
 | Lights | Reports |
 |---|---|
@@ -191,9 +191,14 @@ bottom intake that feeds the graphics card shows the graphics card.
 - **usage bar** - the same colours, but each run also fills in proportion to
   its load, readable from across the room without judging hue.
 
-The colour stops are deliberately not evenly spaced. Load spends most of its
-life under 50%, so an even ramp would leave the case green nearly always and
-waste the top half of the scale.
+The colour stops are deliberately not evenly spaced, at both ends. Load spends
+most of its life under 50%, so an even ramp would leave the case green nearly
+always and waste the top half of the scale. And an even green-to-red ramp
+spends most of its length in the oranges, so a loaded machine reads as "warm"
+rather than "red" and the top of the scale stops meaning anything - orange is
+compressed into a short transition, and everything above about 80% load is
+essentially red. Measured across the scale: 15% of it reads orange against
+20% red.
 
 **Overall load weights RAM low** (45% CPU, 45% GPU, 10% RAM). This machine
 idles around 80-96% RAM once Windows has filled it with cache; weighting it

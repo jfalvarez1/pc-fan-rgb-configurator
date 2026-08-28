@@ -611,21 +611,26 @@ IGNORES_PALETTE = {"matrix", "fire", "lightning", "usage"}
 
 # ---- resource usage gradient ---------------------------------------------
 #
-# Blue when a component is doing nothing, green when it is working lightly,
-# red when it is loaded. Each run of LEDs reports a different resource - see
+# Strong green when a component is idle, straight through to red when it is
+# loaded. Each run of LEDs reports a different resource - see
 # case_layout.USAGE_SOURCES - so the case reads as a dashboard rather than as
 # one number smeared over everything.
 #
-# The stops are not evenly spaced on purpose. Load spends most of its life
-# under 50%, so an even ramp would leave the case green almost always and
-# waste the whole top half of the scale. Green is reached early and the warm
-# half is stretched across the range that actually distinguishes "busy" from
-# "pinned".
+# ORANGE IS DELIBERATELY NARROW. An even green-to-red ramp spends most of its
+# length in the oranges, so a loaded machine reads as "warm" rather than
+# "red" - the top of the scale stops meaning anything. Orange is compressed
+# into a short transition and everything above ~0.8 is essentially red, so
+# "pinned" is unmistakable at a glance.
+#
+# The stops are not evenly spaced for the same reason at the other end: load
+# spends most of its life under 50%, so an even ramp would leave the case
+# green almost always and waste the top half of the scale.
 USAGE_STOPS = [
-    (0.00, (0, 60, 255)),      # idle - blue
-    (0.10, (0, 255, 120)),     # ticking over - green
-    (0.45, (215, 255, 0)),     # working - yellow-green
-    (0.75, (255, 140, 0)),     # busy - orange
+    (0.00, (0, 255, 45)),      # idle - strong green
+    (0.30, (150, 255, 0)),     # ticking over - yellow-green
+    (0.55, (255, 215, 0)),     # working - yellow
+    (0.72, (255, 110, 0)),     # busy - the only orange, and it is brief
+    (0.85, (255, 30, 0)),      # heavy - already essentially red
     (1.00, (255, 0, 0)),       # pinned - red
 ]
 

@@ -15,6 +15,7 @@ _downloads/
 _retired/
 claude_flags/
 claude_thinking.flag
+dist/
 icon_preview.png
 manual_override.flag
 native/
@@ -22,10 +23,12 @@ scripts/*.log
 scripts/asus_wmi_probe.json
 scripts/bench_*.csv
 scripts/fan_state.json
+scripts/led_studio_state.json
 scripts/lhm_report.txt
 scripts/mobo_fan_report.txt
 scripts/probe_one.txt
 scripts/pump_map.txt
+scripts/selftest_override.flag
 scripts/sensors_all.json
 scripts/thermal_log.csv
 scripts/thermal_log_old.csv

@@ -47,7 +47,8 @@ W_CPU, W_GPU, W_RAM = 0.45, 0.45, 0.10
 # nothing here needs that. Nothing is recorded either: only the timestamps of
 # recent presses exist, in memory, and they age out.
 VK_SPACE = 0x20
-WPM_CAP = 200.0          # typing at or above this reads as full
+WPM_CAP = 200.0          # DEFAULT cap; the UI can change it per user
+WPM_CAP_MIN, WPM_CAP_MAX = 30.0, 400.0
 WPM_WINDOW = 8.0         # seconds of presses used to work out the rate
 KEY_POLL = 0.02          # 50 Hz - one API call, far cheaper than a hook
 
@@ -58,7 +59,8 @@ class UsageLevels:
         self.ram = 0.0
         self.gpu = 0.0
         self.wpm = 0.0
-        self.typing = 0.0        # wpm scaled against WPM_CAP, 0..1
+        self.typing = 0.0        # wpm scaled against the cap, 0..1
+        self.cap = WPM_CAP       # per-instance so the UI can set it live
         self._presses = collections.deque()
         self.available = False
         self.gpu_available = False
@@ -106,13 +108,27 @@ class UsageLevels:
                 # rise immediately, fall gently: a burst should light up at
                 # once, and a pause between sentences should not slam to zero
                 self.wpm = wpm if wpm > self.wpm else self.wpm + (wpm - self.wpm) * 0.15
-                self.typing = max(0.0, min(1.0, self.wpm / WPM_CAP))
+                cap = max(1.0, float(self.cap))
+                self.typing = max(0.0, min(1.0, self.wpm / cap))
             except Exception:
                 pass
             self._stop.wait(KEY_POLL)
 
     def stop(self):
         self._stop.set()
+
+    def set_cap(self, wpm):
+        """Typing speed that should read as fully red. Clamped, because a cap
+        at or below zero would divide by nothing and a huge one would make the
+        keyboard permanently green."""
+        try:
+            wpm = float(wpm)
+        except (TypeError, ValueError):
+            return self.cap
+        self.cap = max(WPM_CAP_MIN, min(WPM_CAP_MAX, wpm))
+        cap = max(1.0, self.cap)
+        self.typing = max(0.0, min(1.0, self.wpm / cap))
+        return self.cap
 
     def value(self, source):
         return {"cpu": self.cpu, "gpu": self.gpu, "ram": self.ram,

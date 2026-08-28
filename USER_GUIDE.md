@@ -61,6 +61,11 @@ layers and any painted colours.
 
 Two buttons at the top of the panel control whether anything reaches hardware:
 
+**Apply now** re-sends the current frame to the hardware and restarts the
+effect if it had stopped. It also takes control and enables writing if either
+was off, and clears the record of what each device is believed to be holding
+so the frame is sent even when the colours have not changed.
+
 - **Take control** — already on at launch. Takes LED ownership from
   `thermal_rgb_loop`, which stands down for lighting while the flag exists.
   Released automatically when you close the app, and the daemon's own
@@ -187,7 +192,9 @@ you can see at a glance which part of the machine is busy:
 The pairing is physical: the parts cooling the CPU show the CPU, and the
 bottom intake that feeds the graphics card shows the graphics card.
 
-**Typing speed** goes green at rest to red at 200 wpm. Words are counted by
+**Typing speed** goes green at rest to red at the cap, which is a slider in
+the panel - **Max typing speed**, default 200 wpm. Lower it if you never reach
+the top of the scale; it is remembered across restarts. Words are counted by
 watching the spacebar, which is enough for a rate and nothing else.
 
 Worth being precise about how that is done, because it is the kind of thing

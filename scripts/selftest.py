@@ -482,6 +482,18 @@ def test_usage():
     chk("0 wpm is green", fx.usage_colour(0.0) == (0, 255, 0))
     chk(f"{ul.WPM_CAP:.0f} wpm is fully red",
         fx.usage_colour(ul.WPM_CAP / ul.WPM_CAP) == (255, 0, 0))
+    cu = usage_levels.UsageLevels()
+    cu.wpm = 60.0
+    cu.set_cap(200)
+    slow = cu.typing
+    cu.set_cap(80)
+    chk(f"a lower cap makes the same speed read hotter "
+        f"({slow:.2f} -> {cu.typing:.2f})", cu.typing > slow)
+    chk("cap clamps low", cu.set_cap(-5) == ul.WPM_CAP_MIN)
+    chk("cap clamps high", cu.set_cap(10 ** 6) == ul.WPM_CAP_MAX)
+    chk("a zero cap cannot divide by zero", cu.set_cap(0) >= ul.WPM_CAP_MIN)
+    chk("a garbage cap is ignored rather than raising",
+        isinstance(cu.set_cap("abc"), float))
     tu = usage_levels.UsageLevels()
     tu.wpm = ul.WPM_CAP * 3
     tu.typing = min(1.0, tu.wpm / ul.WPM_CAP)
@@ -634,6 +646,29 @@ def test_app():
         chk("effect buttons retarget to the selected layer",
             lay.effect == "ripple" and app.effect == before_global,
             f"layer={lay.effect} global={app.effect}")
+
+        # EVERY effect must survive a real frame and actually reach the
+        # hardware. The existing effect test only called the functions
+        # directly, so an effect that rendered fine but threw elsewhere in
+        # tick() looked healthy - which is exactly how "usage" shipped broken:
+        # a stale lookup key raised KeyError, tick() swallowed it, and the
+        # effect silently stopped posting.
+        posted = []
+        real_post = app.hw.post
+        app.hw.post = lambda f: posted.append(f)
+        app.controlling = True
+        app.hw_var.set(True)
+        dead = []
+        for name in sorted(fx.SPATIAL):
+            posted.clear()
+            app.start_fx(name)
+            app.tick()
+            if app.effect != name or not posted:
+                dead.append(f"{name}: {app.status.cget('text')[:44]}")
+        chk(f"all {len(fx.SPATIAL)} effects render AND post a frame",
+            not dead, "; ".join(dead[:3]))
+        app.stop_fx()
+        app.hw.post = real_post
 
         # --- intensity limits
         app.sel_all()

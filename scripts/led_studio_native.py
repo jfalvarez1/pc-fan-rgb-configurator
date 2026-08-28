@@ -627,6 +627,13 @@ class App:
                  font=FONT_L, showvalue=False, command=self.set_gain
                  ).pack(fill="x", padx=14)
 
+        self.apply_btn = mkbtn(p, "Apply now", self.apply_now, "accent")
+        self.apply_btn.pack(fill="x", padx=16, pady=(6, 2))
+        tk.Label(p, text="Re-sends the current frame to the hardware, and\n"
+                         "restarts the effect if it had stopped.",
+                 bg=PANEL, fg=MUTED, font=FONT_L, anchor="w", justify="left"
+                 ).pack(fill="x", padx=16, pady=(0, 2))
+
         r = row()
         mkbtn(r, "Stop", self.stop_fx).pack(side="left", expand=True,
                                             fill="x", padx=2)
@@ -666,6 +673,23 @@ class App:
                  bd=0, sliderrelief="flat", activebackground=ACCENT,
                  font=FONT_L, showvalue=False, command=self.set_layer_opacity
                  ).pack(fill="x", padx=14)
+        self.wpm_lbl = tk.Label(p, text="Max typing speed: 200 wpm", bg=PANEL,
+                                fg=MUTED, font=FONT_L, anchor="w")
+        self.wpm_lbl.pack(fill="x", padx=16, pady=(10, 0))
+        self.wpmcap = tk.IntVar(value=int(usage_levels.WPM_CAP))
+        tk.Scale(p, from_=int(usage_levels.WPM_CAP_MIN),
+                 to=int(usage_levels.WPM_CAP_MAX), resolution=5,
+                 orient="horizontal", variable=self.wpmcap, bg=PANEL, fg=INK,
+                 troughcolor=BTN, highlightthickness=0, bd=0,
+                 sliderrelief="flat", activebackground=ACCENT, font=FONT_L,
+                 showvalue=False, command=self.set_wpm_cap
+                 ).pack(fill="x", padx=14)
+        tk.Label(p, text="The speed that reads as fully red on the keyboard\n"
+                         "in the usage effect. Lower it if you never reach\n"
+                         "the top of the scale.",
+                 bg=PANEL, fg=MUTED, font=FONT_L, anchor="w", justify="left"
+                 ).pack(fill="x", padx=16, pady=(0, 2))
+
         self.blend_btn = mkbtn(p, "Blend: normal", self.cycle_layer_blend)
         self.blend_btn.pack(fill="x", padx=16, pady=2)
 
@@ -841,6 +865,10 @@ class App:
             return
         lay.on = not lay.on
         self.refresh_layer_list()
+
+    def set_wpm_cap(self, _v=None):
+        got = usage_levels.SHARED.set_cap(self.wpmcap.get())
+        self.wpm_lbl.config(text=f"Max typing speed: {got:.0f} wpm")
 
     def set_layer_opacity(self, _v=None):
         if self.active:
@@ -1299,6 +1327,29 @@ class App:
         self.frames = 0
         self.say(f"animating: {name}")
 
+    def apply_now(self):
+        """Force everything to the hardware right now.
+
+        Takes control and enables writing if they were off, forgets what each
+        device is believed to be holding so the next frame is sent even if the
+        colours match, restarts the effect if one is selected, and pushes.
+        """
+        if not self.controlling:
+            self.toggle_ctl()
+        if not self.hw_var.get():
+            self.toggle_hw()
+        self.hw.written.clear()          # re-send even if nothing changed
+        if self.effect or any(l.on for l in self.layers):
+            self.t0 = time.monotonic()
+            self.tick()
+            what = self.effect or f"{sum(1 for l in self.layers if l.on)} layer(s)"
+        else:
+            for r in self.leds:
+                self.set_led(r, r["rgb"])
+            self.push()
+            what = "current colours"
+        self.say(f"applied {what} to the hardware")
+
     def stop_fx(self):
         for n, b in list(self.fxbtns.items()):
             try:
@@ -1405,8 +1456,14 @@ class App:
                 base_usage = self.effect in fx.USAGE_AWARE
                 if base_usage or any(l.effect in fx.USAGE_AWARE for l in live):
                     usage_levels.SHARED.start()
+                    # Derived from the mapping itself, never a hand-written
+                    # list. A hard-coded ("cpu","gpu","ram","all") went stale
+                    # the moment the keyboard was pointed at a new "wpm"
+                    # source: the lookup raised KeyError on the first frame,
+                    # tick() swallowed it, and the whole effect silently
+                    # stopped reaching the hardware.
                     lv = {k: usage_levels.SHARED.value(k)
-                          for k in ("cpu", "gpu", "ram", "all")}
+                          for k in set(case_layout.USAGE_SOURCES.values())}
                 else:
                     lv = None
                 # Base pass. With no global effect the manually painted
@@ -1520,6 +1577,7 @@ class App:
                 "layer_mode": self.layer_mode,
                 "light_keyboard": bool(self.kb_var.get()),
                 "keep_on_exit": bool(self.keep_var.get()),
+                "wpm_cap": int(self.wpmcap.get()),
                 "brightness": int(self.bright.get()),
                 "gains": [round(float(r.get("gain", 1.0)), 3)
                           for r in self.leds],
@@ -1543,6 +1601,12 @@ class App:
         except Exception:
             return
         try:
+            if data.get("wpm_cap"):
+                try:
+                    self.wpmcap.set(int(data["wpm_cap"]))
+                    self.set_wpm_cap()
+                except Exception:
+                    pass
             if data.get("keep_on_exit") is False:
                 self.keep_var.set(False)
                 setbtn(self.keep_btn, False)

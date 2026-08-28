@@ -403,18 +403,38 @@ def test_usage():
     hi = fx.usage_colour(1.0)
     chk(f"full load reads red {hi}", hi[0] > 200 and hi[1] < 40)
 
-    # The complaint that produced this ramp was that a loaded machine looked
-    # orange rather than red. Assert the top of the scale is unambiguous.
-    for u in (0.85, 0.9, 0.95, 1.0):
-        c = fx.usage_colour(u)
-        chk(f"load {u:.2f} reads RED not orange {c}",
-            c[0] > 200 and c[1] <= 40)
-    def band(pred):
-        return sum(1 for i in range(101) if pred(fx.usage_colour(i / 100)))
-    orange = band(lambda c: c[0] > 200 and 60 < c[1] <= 150)
-    red = band(lambda c: c[0] > 200 and c[1] <= 60)
-    chk(f"orange is a narrow transition, not the top of the scale "
-        f"({orange}% orange vs {red}% red)", orange < red)
+    # Thresholds, not endpoints: nothing sits at exactly 0% or 100%, so both
+    # ends have to saturate early or the two colours that matter never appear.
+    chk(f"anything at or below {fx.USAGE_IDLE:.0%} is fully green",
+        all(fx.usage_colour(u) == (0, 255, 0)
+            for u in (0.0, 0.02, 0.05, fx.USAGE_IDLE)))
+    chk(f"anything at or above {fx.USAGE_FULL:.0%} is fully red",
+        all(fx.usage_colour(u) == (255, 0, 0)
+            for u in (fx.USAGE_FULL, 0.93, 0.97, 1.0)))
+    chk("the thresholds leave a real gradient between them",
+        fx.USAGE_FULL - fx.USAGE_IDLE >= 0.5)
+
+    # green -> yellow -> orange -> red, with every band actually visible
+    def kind(c):
+        r, g, b = c
+        if g > 200 and r < 80:
+            return "green"
+        if r > 200 and g > 200:
+            return "yellow"
+        if r > 200 and 60 < g <= 200:
+            return "orange"
+        if r > 200:
+            return "red"
+        return "mid"
+    seen = [kind(fx.usage_colour(i / 100)) for i in range(101)]
+    for want in ("green", "yellow", "orange", "red"):
+        chk(f"{want} is visible on the scale ({seen.count(want)}%)",
+            seen.count(want) >= 3)
+    firsts = {b: seen.index(b) for b in ("green", "yellow", "orange", "red")
+              if b in seen}
+    chk("the bands appear in order green, yellow, orange, red",
+        firsts.get("green", 0) < firsts.get("yellow", 1)
+        < firsts.get("orange", 2) < firsts.get("red", 3), str(firsts))
     # This used to allow blue up to 60, which passed while the idle stop
     # carried 45 - and 45 of blue on a saturated green is visibly sea green
     # on a real LED. A limit loose enough to admit the bug is not a test.

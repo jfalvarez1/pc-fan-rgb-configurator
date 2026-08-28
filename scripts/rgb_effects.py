@@ -611,38 +611,45 @@ IGNORES_PALETTE = {"matrix", "fire", "lightning", "usage"}
 
 # ---- resource usage gradient ---------------------------------------------
 #
-# Strong green when a component is idle, straight through to red when it is
+# Green when a component is idle, through yellow and orange to red when it is
 # loaded. Each run of LEDs reports a different resource - see
 # case_layout.USAGE_SOURCES - so the case reads as a dashboard rather than as
 # one number smeared over everything.
 #
-# ORANGE IS DELIBERATELY NARROW. An even green-to-red ramp spends most of its
-# length in the oranges, so a loaded machine reads as "warm" rather than
-# "red" - the top of the scale stops meaning anything. Orange is compressed
-# into a short transition and everything above ~0.8 is essentially red, so
-# "pinned" is unmistakable at a glance.
+# THRESHOLDS, not endpoints. Nothing sits at exactly 0% or exactly 100%, so a
+# ramp anchored there would never actually show pure green or pure red - the
+# two colours that are supposed to mean something at a glance. Anything at or
+# below USAGE_IDLE reads fully green, anything at or above USAGE_FULL reads
+# fully red, and the gradient runs between them.
 #
-# The stops are not evenly spaced for the same reason at the other end: load
-# spends most of its life under 50%, so an even ramp would leave the case
-# green almost always and waste the top half of the scale.
-#
-# NO STOP CARRIES BLUE. The idle stop was (0,255,45) and 45 of blue on a
+# NO STOP CARRIES BLUE. The idle stop was once (0,255,45), and 45 of blue on a
 # saturated green is plainly visible on a real LED - it reads as sea green
-# rather than green. Anything above zero here tints every low-load colour,
-# because the blue channel is interpolated along with the others.
+# rather than green. Because the blue channel is interpolated with the others,
+# any blue here tints every low-load colour, not just idle.
+USAGE_IDLE = 0.10        # at or below this, fully green
+USAGE_FULL = 0.90        # at or above this, fully red
+
+# Positions BETWEEN those thresholds, not raw usage. Yellow sits a little
+# before halfway and orange well past it, so the warm half is not all one
+# indistinct wash.
 USAGE_STOPS = [
-    (0.00, (0, 255, 0)),       # idle - pure green, NO blue at all
-    (0.30, (150, 255, 0)),     # ticking over - yellow-green
-    (0.55, (255, 215, 0)),     # working - yellow
-    (0.72, (255, 110, 0)),     # busy - the only orange, and it is brief
-    (0.85, (255, 30, 0)),      # heavy - already essentially red
-    (1.00, (255, 0, 0)),       # pinned - red
+    (0.00, (0, 255, 0)),       # green
+    (0.45, (255, 235, 0)),     # yellow
+    (0.75, (255, 120, 0)),     # orange
+    (1.00, (255, 0, 0)),       # red
 ]
 
 
 def usage_colour(u):
-    """Colour for a 0..1 usage level, interpolated between USAGE_STOPS."""
+    """Colour for a 0..1 usage level.
+
+    The level is first rescaled so USAGE_IDLE maps to the green end and
+    USAGE_FULL to the red end; only then is it interpolated between the stops.
+    """
     u = 0.0 if u is None else max(0.0, min(1.0, float(u)))
+    span = USAGE_FULL - USAGE_IDLE
+    x = 0.0 if span <= 0 else (u - USAGE_IDLE) / span
+    u = max(0.0, min(1.0, x))
     for (t0, c0), (t1, c1) in zip(USAGE_STOPS, USAGE_STOPS[1:]):
         if u <= t1:
             span = t1 - t0

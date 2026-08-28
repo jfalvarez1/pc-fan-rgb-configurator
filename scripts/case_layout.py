@@ -200,6 +200,7 @@ def cell_of(el, i):
 #   cpu  the CPU's own cooling - pump and the three radiator fans
 #   gpu  the card's lighting and the bottom intake that feeds it
 #   ram  the DIMMs show their own figure
+#   wpm  the keyboard shows how fast you are typing
 #   all  the general-airflow fans show overall system load
 USAGE_SOURCES = {
     "pump": "cpu", "rad_l": "cpu", "rad_m": "cpu", "rad_r": "cpu",
@@ -207,7 +208,7 @@ USAGE_SOURCES = {
     "bot1": "gpu", "bot2": "gpu", "bot3": "gpu",
     "ram0": "ram", "ram1": "ram",
     "side1": "all", "side2": "all", "side3": "all", "rear": "all",
-    "keyboard": "all",
+    "keyboard": "wpm",
 }
 
 

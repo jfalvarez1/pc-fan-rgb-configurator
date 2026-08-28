@@ -20,6 +20,8 @@ nothing. RAM gets a small weight here and its own dedicated display on the RAM
 sticks, where a constant high reading is at least the truth about that one
 number rather than something that swamps everything else.
 """
+import collections
+import ctypes
 import subprocess
 import threading
 import time
@@ -35,12 +37,29 @@ SMOOTH = 0.25               # EMA factor per sample; lower is calmer
 # weighted low so a permanently-full cache cannot peg the whole case red.
 W_CPU, W_GPU, W_RAM = 0.45, 0.45, 0.10
 
+# --- typing speed -----------------------------------------------------------
+#
+# ONLY THE SPACEBAR IS EVER READ. GetAsyncKeyState is asked about exactly one
+# virtual key code and returns a single bit: is that key down right now. It
+# cannot report which other keys were pressed, so this cannot see what you
+# type. That is deliberate - the obvious implementation is a global keyboard
+# hook, which would sit in the input chain and receive every keystroke, and
+# nothing here needs that. Nothing is recorded either: only the timestamps of
+# recent presses exist, in memory, and they age out.
+VK_SPACE = 0x20
+WPM_CAP = 200.0          # typing at or above this reads as full
+WPM_WINDOW = 8.0         # seconds of presses used to work out the rate
+KEY_POLL = 0.02          # 50 Hz - one API call, far cheaper than a hook
+
 
 class UsageLevels:
     def __init__(self):
         self.cpu = 0.0
         self.ram = 0.0
         self.gpu = 0.0
+        self.wpm = 0.0
+        self.typing = 0.0        # wpm scaled against WPM_CAP, 0..1
+        self._presses = collections.deque()
         self.available = False
         self.gpu_available = False
         self.error = None
@@ -58,12 +77,46 @@ class UsageLevels:
         self._stop.clear()
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
+        self._keys = threading.Thread(target=self._run_keys, daemon=True)
+        self._keys.start()
+
+    def _run_keys(self):
+        """Count spacebar presses to estimate words per minute.
+
+        Polls one key rather than hooking the keyboard. A press is counted on
+        the DOWN edge, so holding the spacebar counts once rather than
+        repeating, and auto-repeat cannot inflate the figure.
+        """
+        try:
+            get_state = ctypes.windll.user32.GetAsyncKeyState
+        except Exception:
+            return
+        was_down = False
+        while not self._stop.is_set():
+            try:
+                down = bool(get_state(VK_SPACE) & 0x8000)
+                now = time.monotonic()
+                if down and not was_down:
+                    self._presses.append(now)
+                was_down = down
+                cutoff = now - WPM_WINDOW
+                while self._presses and self._presses[0] < cutoff:
+                    self._presses.popleft()
+                wpm = len(self._presses) * (60.0 / WPM_WINDOW)
+                # rise immediately, fall gently: a burst should light up at
+                # once, and a pause between sentences should not slam to zero
+                self.wpm = wpm if wpm > self.wpm else self.wpm + (wpm - self.wpm) * 0.15
+                self.typing = max(0.0, min(1.0, self.wpm / WPM_CAP))
+            except Exception:
+                pass
+            self._stop.wait(KEY_POLL)
 
     def stop(self):
         self._stop.set()
 
     def value(self, source):
         return {"cpu": self.cpu, "gpu": self.gpu, "ram": self.ram,
+                "wpm": self.typing,
                 "all": self.overall}.get(source, self.overall)
 
     def _smooth(self, old, new):

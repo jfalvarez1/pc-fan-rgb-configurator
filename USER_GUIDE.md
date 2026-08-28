@@ -181,10 +181,27 @@ you can see at a glance which part of the machine is busy:
 | AIO pump + the three radiator fans | **CPU** usage |
 | GPU lighting (ZOTAC text and logo) + bottom F420 intake | **GPU** usage |
 | RAM sticks | **RAM** usage |
-| Side F360 + rear exhaust + keyboard | **overall** system load |
+| Side F360 + rear exhaust | **overall** system load |
+| Keyboard | **your typing speed** |
 
 The pairing is physical: the parts cooling the CPU show the CPU, and the
 bottom intake that feeds the graphics card shows the graphics card.
+
+**Typing speed** goes green at rest to red at 200 wpm. Words are counted by
+watching the spacebar, which is enough for a rate and nothing else.
+
+Worth being precise about how that is done, because it is the kind of thing
+that deserves scrutiny. It uses `GetAsyncKeyState` on **one** virtual key
+code - the spacebar - which answers a single question: is that key down right
+now. It cannot report which other keys were pressed, so it cannot see what you
+type. The obvious implementation is a global keyboard hook, which sits in the
+input chain and receives every keystroke; nothing here needs that, so it is
+not used. Nothing is stored either - only the timestamps of presses in the
+last 8 seconds, in memory, ageing out continuously.
+
+The test suite asserts all of that: exactly one key code appears in the
+source, no hook is installed, and no key content is retained. Measured cost of
+the poller on its own: 0.0 ms over 4 seconds, below timer resolution.
 
 - **usage** - each run a flat colour, so two fans at 40% and 55% are directly
   comparable. It is an instrument, not an animation.

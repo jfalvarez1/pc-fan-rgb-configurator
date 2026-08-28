@@ -474,6 +474,38 @@ def test_usage():
     chk("every element has a source",
         all(el["id"] in cl.USAGE_SOURCES for el in cl.LAYOUT))
 
+    # --- typing speed on the keyboard
+    import re
+    import usage_levels as ul
+    chk("the keyboard reports typing speed",
+        cl.usage_source({"id": "keyboard"}) == "wpm")
+    chk("0 wpm is green", fx.usage_colour(0.0) == (0, 255, 0))
+    chk(f"{ul.WPM_CAP:.0f} wpm is fully red",
+        fx.usage_colour(ul.WPM_CAP / ul.WPM_CAP) == (255, 0, 0))
+    tu = usage_levels.UsageLevels()
+    tu.wpm = ul.WPM_CAP * 3
+    tu.typing = min(1.0, tu.wpm / ul.WPM_CAP)
+    chk("typing faster than the cap clamps rather than overflowing",
+        tu.typing == 1.0 and fx.usage_colour(tu.typing) == (255, 0, 0))
+    import time as _t
+    tu2 = usage_levels.UsageLevels()
+    now = _t.monotonic()
+    tu2._presses.extend(now - i * 0.5 for i in range(int(ul.WPM_WINDOW / 0.5)))
+    rate = len(tu2._presses) * (60.0 / ul.WPM_WINDOW)
+    chk(f"press timestamps convert to wpm correctly ({rate:.0f})",
+        abs(rate - 120) < 1)
+
+    # This reads a key, so what it CANNOT do matters as much as what it can.
+    src = (BASE / "usage_levels.py").read_text()
+    codes = set(re.findall("0x[0-9A-Fa-f]+", src)) - {"0x8000"}
+    chk(f"only one virtual key code appears in the source {codes or '{}'}",
+        codes == {"0x20"})
+    chk("that code is the spacebar", ul.VK_SPACE == 0x20)
+    chk("no global keyboard hook is installed",
+        "SetWindowsHookEx" not in src and "WH_KEYBOARD" not in src)
+    chk("only press timestamps are kept, never key content",
+        "_presses" in src and "keylog" not in src.lower())
+
     # a full RAM cache must not drag the whole case red
     u = usage_levels.UsageLevels()
     u.cpu, u.gpu, u.ram = 0.0, 0.0, 1.0

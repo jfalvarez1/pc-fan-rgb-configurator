@@ -645,12 +645,17 @@ class App:
         # fixed height no matter how many effects exist.
         self.groups = getattr(fx, "EFFECT_GROUPS", {"All": sorted(fx.SPATIAL)})
         self.catbtns = {}
-        cr = row()
-        for cat in self.groups:
-            b = mkbtn(cr, cat, lambda c=cat: self.show_cat(c))
-            b.config(padx=2, font=FONT_L)
-            b.pack(side="left", expand=True, fill="x", padx=1)
-            self.catbtns[cat] = b
+        # Wrapped onto rows of four. Seven across a 344px panel left 43px per
+        # button, which is narrower than the word "Scatter".
+        cats = list(self.groups)
+        per = 4
+        for start in range(0, len(cats), per):
+            cr = row()
+            for cat in cats[start:start + per]:
+                b = mkbtn(cr, cat, lambda c=cat: self.show_cat(c))
+                b.config(padx=2, font=FONT_L)
+                b.pack(side="left", expand=True, fill="x", padx=2)
+                self.catbtns[cat] = b
 
         # Fixed-height holder so switching category never resizes the panel -
         # but sized to the LARGEST category, not a guess. It was hardcoded to
@@ -866,6 +871,10 @@ class App:
         self.cur_cat = cat
         for w in self.fxbox.winfo_children():
             w.destroy()
+        # Drop the old entries with the widgets. They were left behind and
+        # only removed later, lazily, when configuring one raised TclError -
+        # so the dict briefly described buttons that no longer existed.
+        self.fxbtns.clear()
         names = [n for n in self.groups[cat] if n in fx.SPATIAL]
         per = 3
         for i in range(0, len(names), per):

@@ -48,8 +48,16 @@ class RoundButton(tk.Canvas):
         self._font = font
         self._command = command
         h = kw.pop("height", None)
+        # Width is requested from the TEXT, not left at Canvas's 378px
+        # default and not pinned tiny. pack() can expand a widget past its
+        # request but never shrink it below one, so 378 pushed everything
+        # after the first button off the panel - and a fixed 10 clipped any
+        # button that does not expand, which is how the "Lighting" tab became
+        # "ghtin".
         super().__init__(parent, highlightthickness=0, bd=0,
                          bg=parent.cget("bg"),
+                         width=kw.pop("width", self._text_width(text, font,
+                                                                padx)),
                          height=h or (self._line_height(font) + pady * 2), **kw)
         self._shape = None
         self._label = None
@@ -59,6 +67,14 @@ class RoundButton(tk.Canvas):
         self.bind("<Button-1>", self._click)
         self.configure(cursor="hand2")
         self._hot = False
+
+    @staticmethod
+    def _text_width(text, font, padx):
+        try:
+            import tkinter.font as tkfont
+            return tkfont.Font(font=font).measure(text or "") + padx * 2
+        except Exception:
+            return max(40, len(text or "") * 8 + padx * 2)
 
     @staticmethod
     def _line_height(font):
@@ -126,7 +142,9 @@ class RoundButton(tk.Canvas):
 
     def _resize_to_font(self):
         try:
-            self.configure(height=self._line_height(self._font) + 18)
+            super().configure(height=self._line_height(self._font) + 18,
+                              width=self._text_width(self._text, self._font,
+                                                     12))
         except Exception:
             pass
 
@@ -160,7 +178,7 @@ class Slider(tk.Canvas):
                      "label", "length", "width"):
             kw.pop(junk, None)          # accepted and ignored, as Scale kwargs
         super().__init__(parent, height=height, highlightthickness=0, bd=0,
-                         bg=parent.cget("bg"), **kw)
+                         bg=parent.cget("bg"), width=kw.pop("width", 10), **kw)
         self._min = float(from_)
         self._max = float(to)
         self._step = float(resolution) or 1.0

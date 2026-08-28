@@ -415,8 +415,12 @@ def test_usage():
     red = band(lambda c: c[0] > 200 and c[1] <= 60)
     chk(f"orange is a narrow transition, not the top of the scale "
         f"({orange}% orange vs {red}% red)", orange < red)
-    chk("nothing on the scale is blue-dominant",
-        all(fx.usage_colour(i / 100)[2] <= 60 for i in range(101)))
+    # This used to allow blue up to 60, which passed while the idle stop
+    # carried 45 - and 45 of blue on a saturated green is visibly sea green
+    # on a real LED. A limit loose enough to admit the bug is not a test.
+    worst = max(fx.usage_colour(i / 100)[2] for i in range(101))
+    chk(f"no blue anywhere on the scale (worst channel {worst})", worst <= 2)
+    chk("idle is pure green", fx.usage_colour(0.0) == (0, 255, 0))
 
     chk("red never falls as load rises",
         all(fx.usage_colour(i / 50)[0] <= fx.usage_colour((i + 1) / 50)[0] + 1

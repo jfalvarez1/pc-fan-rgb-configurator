@@ -625,8 +625,13 @@ IGNORES_PALETTE = {"matrix", "fire", "lightning", "usage"}
 # The stops are not evenly spaced for the same reason at the other end: load
 # spends most of its life under 50%, so an even ramp would leave the case
 # green almost always and waste the top half of the scale.
+#
+# NO STOP CARRIES BLUE. The idle stop was (0,255,45) and 45 of blue on a
+# saturated green is plainly visible on a real LED - it reads as sea green
+# rather than green. Anything above zero here tints every low-load colour,
+# because the blue channel is interpolated along with the others.
 USAGE_STOPS = [
-    (0.00, (0, 255, 45)),      # idle - strong green
+    (0.00, (0, 255, 0)),       # idle - pure green, NO blue at all
     (0.30, (150, 255, 0)),     # ticking over - yellow-green
     (0.55, (255, 215, 0)),     # working - yellow
     (0.72, (255, 110, 0)),     # busy - the only orange, and it is brief

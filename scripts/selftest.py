@@ -768,6 +768,85 @@ def test_app():
             errs[0][:120] if errs else "")
 
 
+def test_handoff():
+    section("animation handoff")
+    import subprocess
+    import time as _t
+    import led_studio_native as ls
+
+    # Snapshotted. An earlier ad-hoc version of this test set keep-on-exit to
+    # False and wrote it into the real state file, which silently disabled the
+    # feature on the machine under test until someone noticed the lighting no
+    # longer followed their typing.
+    with Restore("led_studio_state.json", "manual_override.flag"):
+        import tkinter as tk
+        try:
+            import psutil
+        except Exception:
+            chk("psutil available for the handoff test", False)
+            return
+
+        def players():
+            out = []
+            for proc in psutil.process_iter(["pid", "name", "cmdline"]):
+                try:
+                    if not (proc.info.get("name") or "").lower().startswith(
+                            "python"):
+                        continue
+                    argv = proc.info.get("cmdline") or []
+                    if any(os.path.basename(a).lower() == "led_player.py"
+                           for a in argv):
+                        out.append(proc.info["pid"])
+                except Exception:
+                    continue
+            return out
+
+        for pid in players():
+            try:
+                psutil.Process(pid).terminate()
+            except Exception:
+                pass
+        _t.sleep(1)
+
+        root = tk.Tk()
+        root.withdraw()
+        app = ls.App(root)
+        root.update_idletasks()
+        app.start_fx("wave")
+        app.keep_var.set(True)
+        chk("no player while the editor is running", not players())
+        shutdown(app, root)
+        _t.sleep(4)
+        pl = players()
+        chk(f"closing hands the animation to a player {pl}", bool(pl))
+        if pl:
+            body = ls.OVERRIDE.read_text() if ls.OVERRIDE.exists() else ""
+            chk("the player holds the flag", "led_player" in body)
+            chk("still scoped to leds, so fans keep running",
+                "scope=leds" in body)
+            proc = psutil.Process(pl[0])
+            c0 = proc.cpu_times().user
+            _t.sleep(2)
+            chk("the player is actually animating",
+                proc.cpu_times().user > c0)
+
+        r2 = tk.Tk()
+        r2.withdraw()
+        a2 = ls.App(r2)
+        r2.update_idletasks()
+        _t.sleep(2)
+        chk("reopening stops the player", not players(), str(players()))
+        a2.keep_var.set(False)
+        shutdown(a2, r2)
+        _t.sleep(2)
+        chk("with keep off, nothing is left running", not players())
+        for pid in players():
+            try:
+                psutil.Process(pid).terminate()
+            except Exception:
+                pass
+
+
 def test_fan_view():
     section("fan view")
     import tkinter as tk
@@ -814,6 +893,7 @@ SECTIONS = {
     "matrix": test_matrix,
     "geometry": test_layer_geometry,
     "app": test_app,
+    "handoff": test_handoff,
     "fans": test_fan_view,
 }
 

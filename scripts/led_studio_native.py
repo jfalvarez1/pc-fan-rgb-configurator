@@ -491,10 +491,14 @@ class App:
         self.ctl_btn.pack(fill="x", padx=16, pady=2)
         self.hw_var = tk.BooleanVar(value=True)
         self.kb_var = tk.BooleanVar(value=True)
+        self.keep_var = tk.BooleanVar(value=True)   # lighting persists on exit
         self.hw_btn = mkbtn(p, "Drive hardware", self.toggle_hw, "accent")
         self.hw_btn.pack(fill="x", padx=16, pady=2)
         self.kb_btn = mkbtn(p, "Light keyboard", self.toggle_kb, "accent")
         self.kb_btn.pack(fill="x", padx=16, pady=2)
+        self.keep_btn = mkbtn(p, "Keep lighting on exit", self.toggle_keep,
+                              "accent")
+        self.keep_btn.pack(fill="x", padx=16, pady=2)
         tk.Label(p, text="The keyboard is also an input device. Turn this\n"
                          "off if you get stuck or repeating keys - lighting\n"
                          "it means writing its USB HID endpoint.",
@@ -1306,6 +1310,13 @@ class App:
         self.brush = not self.brush
         setbtn(self.brush_btn, self.brush)
 
+    def toggle_keep(self):
+        self.keep_var.set(not self.keep_var.get())
+        setbtn(self.keep_btn, self.keep_var.get())
+        self.say("lighting will stay as-is after closing"
+                 if self.keep_var.get()
+                 else "on closing, the daemon takes the LEDs back")
+
     def toggle_kb(self):
         self.kb_var.set(not self.kb_var.get())
         setbtn(self.kb_btn, self.kb_var.get())
@@ -1491,6 +1502,7 @@ class App:
                 "gain": self.gain.get(),
                 "layer_mode": self.layer_mode,
                 "light_keyboard": bool(self.kb_var.get()),
+                "keep_on_exit": bool(self.keep_var.get()),
                 "brightness": int(self.bright.get()),
                 "gains": [round(float(r.get("gain", 1.0)), 3)
                           for r in self.leds],
@@ -1514,6 +1526,9 @@ class App:
         except Exception:
             return
         try:
+            if data.get("keep_on_exit") is False:
+                self.keep_var.set(False)
+                setbtn(self.keep_btn, False)
             if data.get("light_keyboard") is False:
                 self.kb_var.set(False)
                 setbtn(self.kb_btn, False)
@@ -1575,6 +1590,23 @@ class App:
 
     def close(self):
         self.save_state()
+        if self.keep_var.get() and self.controlling:
+            # Push the final frame and give the hardware thread a moment to
+            # write it, THEN mark the flag as held. Without the wait the
+            # process can exit before the write lands, and the LEDs keep
+            # whatever the previous frame was.
+            try:
+                self.push()
+                deadline = time.monotonic() + 1.5
+                while time.monotonic() < deadline:
+                    with self.hw.lock:
+                        if self.hw.pending is None:
+                            break
+                    time.sleep(0.05)
+                OVERRIDE.write_text(
+                    "led_studio_native\nscope=leds\nhold=1\n")
+            except Exception:
+                pass
         # Cancel the pending callbacks first. Without this Tk tries to run
         # them after the interpreter is torn down and prints
         # 'invalid command name ...tick' on the way out.
@@ -1590,7 +1622,9 @@ class App:
             fan_side.GPU.stop()
         except Exception:
             pass
-        OVERRIDE.unlink(missing_ok=True)
+        self._holding = bool(self.keep_var.get() and self.controlling)
+        if not getattr(self, "_holding", False):
+            OVERRIDE.unlink(missing_ok=True)
         self.hw.stop_flag.set()
         self._destroy_id = self.root.after(300, self.root.destroy)
 

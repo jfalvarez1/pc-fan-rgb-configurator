@@ -31,6 +31,7 @@
  "gain": 11,
  "layer_mode": false,
  "light_keyboard": true,
+ "keep_on_exit": true,
  "brightness": 100,
  "gains": [
   1.0,

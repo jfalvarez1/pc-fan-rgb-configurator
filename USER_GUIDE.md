@@ -68,6 +68,17 @@ Two buttons at the top of the panel control whether anything reaches hardware:
 - **Drive hardware** — actually writes colours. With this off you get a live
   preview in the window and nothing else. Both must be on to change your case.
 
+**Keep lighting on exit** (on by default) means your lighting stays exactly as
+you left it when you close the window. Without it, closing hands the LEDs back
+to `thermal_rgb_loop`, which blanks them at idle - so you would set up your
+lighting, close the app, and watch it go dark.
+
+It works by leaving `hold=1` in the flag. That is the one marking which
+survives both the one-hour expiry and the dead-owner check, because it means
+"the user chose this deliberately" rather than "a program is currently running".
+Turn it off and closing behaves as it used to: the daemon takes the LEDs back
+and resumes its own temperature-reactive lighting.
+
 Because the editor now holds control for as long as it is open, the flag is
 **scoped**: it says `scope=leds`, so the daemon keeps running your **case fan
 curves** the whole time. It also carries the editor's process id, so if the

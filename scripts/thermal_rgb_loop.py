@@ -281,19 +281,23 @@ def manual_override(scope="all"):
     So newer writers stamp `pid=` into the flag and refresh it periodically.
     If that process is gone the flag is stale immediately, whatever its mtime
     says - which is the difference between trusting a claim and checking it.
+
+    `hold=1` is the exception to both checks. It means "the user set this
+    lighting deliberately and wants it kept" - so it survives the editor
+    closing and does not expire. Without it, closing the editor handed the
+    LEDs straight back here, and at idle this daemon blanks them: the user
+    would set up their lighting, close the window, and watch it go dark.
     """
     try:
         age = time.time() - os.path.getmtime(MANUAL_FLAG)
     except OSError:
-        return False
-    if age >= 3600:
         return False
     try:
         with open(MANUAL_FLAG) as fh:
             body = fh.read()
     except OSError:
         return True
-    alive, declared = True, "all"
+    alive, declared, hold = True, "all", False
     for line in body.splitlines():
         line = line.strip()
         if line.startswith("pid="):
@@ -303,8 +307,13 @@ def manual_override(scope="all"):
                 alive = True
         elif line.startswith("scope="):
             declared = line[6:].strip() or "all"
-    if not alive:
-        return False
+        elif line.startswith("hold="):
+            hold = line[5:].strip() not in ("", "0", "false", "False")
+    if not hold:
+        if age >= 3600:
+            return False
+        if not alive:
+            return False
     if declared == "all" or scope == "all":
         return True
     return scope in [s.strip() for s in declared.split(",")]

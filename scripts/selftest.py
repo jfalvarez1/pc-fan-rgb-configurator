@@ -542,8 +542,29 @@ def test_app():
         chk("with nothing selected the effect is global again",
             app.effect == "plasma")
         app.speed.set(4.0)
+
+        # Closing has two intended behaviours now, so assert both rather than
+        # only the one that used to exist.
+        app.keep_var.set(False)
         shutdown(app, root)
-        chk("flag released on close", not ls.OVERRIDE.exists())
+        chk("keep OFF: flag released so the daemon takes the LEDs back",
+            not ls.OVERRIDE.exists())
+
+        root_k = tk.Tk()
+        root_k.withdraw()
+        app_k = ls.App(root_k)
+        root_k.update_idletasks()
+        app_k.keep_var.set(True)
+        shutdown(app_k, root_k)
+        body = ls.OVERRIDE.read_text() if ls.OVERRIDE.exists() else ""
+        chk("keep ON: flag kept and marked hold=1",
+            ls.OVERRIDE.exists() and "hold=1" in body,
+            body.replace("\n", "|"))
+        import thermal_rgb_loop as _trl
+        chk("keep ON: daemon leaves the LEDs alone",
+            _trl.manual_override("leds") is True)
+        chk("keep ON: daemon still runs the fans",
+            _trl.manual_override("fans") is False)
 
         root2 = tk.Tk()
         root2.withdraw()

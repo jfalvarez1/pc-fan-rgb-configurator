@@ -46,6 +46,7 @@ import fx_layers
 import openrgb_boot
 import rgb_effects as fx
 import usage_levels
+from ui_widgets import RoundButton, Slider
 
 # Windows groups taskbar buttons by AppUserModelID. A script launched through
 # pythonw.exe inherits PYTHON'S identity, so the taskbar shows the Python icon
@@ -73,45 +74,59 @@ UI_MS = 33               # ~30 fps canvas
 
 
 # ---- palette -------------------------------------------------------------
-BG      = "#0d0f14"
-PANEL   = "#151922"
-CARD    = "#1c222d"
-LINE    = "#2a3140"
-INK     = "#e6e9ef"
-MUTED   = "#7d8697"
-ACCENT  = "#ff3aa2"
-BTN     = "#232b39"
-BTN_HOV = "#2f3949"
+BG      = "#0b0d12"      # deeper ground so the lit LEDs carry the image
+PANEL   = "#12151d"
+CARD    = "#181c26"
+LINE    = "#242a37"
+INK     = "#eef1f7"
+MUTED   = "#8b93a7"
+ACCENT  = "#ff2d95"
+ACCENT2 = "#7c5cff"      # violet, for the header rule
+BTN     = "#1c2130"
+BTN_HOV = "#262d40"
 
 # An unlit LED must still be visible against the background, or the layout
 # reads as a field of empty holes.
 LED_OFF      = "#242c3a"
 LED_OFF_EDGE = "#39445a"
 
-FONT   = ("Segoe UI", 11)
-FONT_H = ("Segoe UI", 9, "bold")
-FONT_L = ("Segoe UI", 10)
+# Segoe UI Variable is the current Windows face; fall back where absent.
+def _face():
+    try:
+        import tkinter.font as tkfont
+        fams = set(tkfont.families())
+        for name in ("Segoe UI Variable Text", "Segoe UI"):
+            if name in fams:
+                return name
+    except Exception:
+        pass
+    return "Segoe UI"
+
+
+_F = _face()
+FONT   = (_F, 11)
+FONT_H = (_F, 9, "bold")
+FONT_L = (_F, 10)
+FONT_T = (_F, 16, "bold")
 
 
 def mkbtn(parent, text, cmd, kind="normal"):
-    """Flat button. Tk's default 3D relief looks like Windows XP."""
+    """Rounded flat button. Tk's own Button cannot lose its square corners
+    or its 3D relief, which is most of what dates a Tk window."""
     bg = {"normal": BTN, "accent": ACCENT, "ghost": PANEL}[kind]
-    b = tk.Label(parent, text=text, bg=bg,
-                 fg="#ffffff" if kind == "accent" else INK,
-                 font=FONT, padx=12, pady=9, cursor="hand2",
-                 highlightthickness=1,
-                 highlightbackground=ACCENT if kind == "accent" else LINE)
+    b = RoundButton(parent, text=text, command=cmd, bg=bg,
+                    fg="#ffffff" if kind == "accent" else INK,
+                    hover="#ff56ab" if kind == "accent" else BTN_HOV,
+                    border=ACCENT if kind == "accent" else LINE,
+                    font=FONT)
     b._bg = bg
-    hov = "#ff5cb4" if kind == "accent" else BTN_HOV
-    b.bind("<Enter>", lambda e: b.config(bg=hov))
-    b.bind("<Leave>", lambda e: b.config(bg=b._bg))
-    b.bind("<Button-1>", lambda e: cmd())
     return b
 
 
 def setbtn(b, active):
     b._bg = ACCENT if active else BTN
     b.config(bg=b._bg, fg="#ffffff" if active else INK,
+             hover="#ff56ab" if active else BTN_HOV,
              highlightbackground=ACCENT if active else LINE)
 
 SWATCHES = ["#ff3aa2", "#ba33ff", "#00e9ff", "#00ff88",
@@ -309,11 +324,11 @@ class App:
         left = tk.Frame(wrap, bg=BG)
         left.pack(side="left", fill="both", expand=True, padx=(10, 6), pady=10)
         tabs = tk.Frame(left, bg=BG)
-        tabs.pack(fill="x", pady=(0, 6))
+        tabs.pack(fill="x", pady=(0, 10))
         self.tabbtns = {}
         for _n in ("Lighting", "Fans"):
             _b = mkbtn(tabs, _n, lambda n=_n: self.show_tab(n))
-            _b.pack(side="left", padx=(0, 6))
+            _b.pack(side="left", padx=(0, 8), ipadx=10)
             self.tabbtns[_n] = _b
         self.stack = tk.Frame(left, bg=BG)
         self.stack.pack(fill="both", expand=True)
@@ -365,8 +380,8 @@ class App:
                                               on_change=self.say)
 
         self.status = tk.Label(root, text="starting...", anchor="w",
-                               bg=BG, fg=MUTED, font=FONT)
-        self.status.pack(fill="x", padx=14, pady=(0, 10))
+                               bg=BG, fg=MUTED, font=FONT_L)
+        self.status.pack(fill="x", padx=20, pady=(0, 12))
 
         self.cv.bind("<Button-1>", self.on_down)
         self.cv.bind("<B1-Motion>", self.on_move)
@@ -473,9 +488,15 @@ class App:
 
     def _build_panel(self, p):
         def head(t):
-            lb = tk.Label(p, text=t, bg=PANEL, fg=MUTED, font=FONT_H,
+            wrap = tk.Frame(p, bg=PANEL)
+            wrap.pack(fill="x", padx=16, pady=(18, 8))
+            lb = tk.Label(wrap, text=t, bg=PANEL, fg=MUTED, font=FONT_H,
                           anchor="w")
-            lb.pack(fill="x", padx=16, pady=(14, 6))
+            lb.pack(side="left")
+            # hairline rule running to the right of the label - groups the
+            # panel visually without boxing every section in a border
+            tk.Frame(wrap, bg=LINE, height=1).pack(
+                side="left", fill="x", expand=True, padx=(10, 0), pady=(7, 0))
             return lb
 
         def row():
@@ -483,11 +504,25 @@ class App:
             f.pack(fill="x", padx=16, pady=2)
             return f
 
-        tk.Label(p, text="LED STUDIO", bg=PANEL, fg=INK,
-                 font=("Segoe UI Semibold", 15), anchor="w"
-                 ).pack(fill="x", padx=16, pady=(16, 0))
-        tk.Label(p, text=f"207 LEDs · 16 runs · {len(fx.SPATIAL)} effects", bg=PANEL, fg=MUTED,
-                 font=FONT_L, anchor="w").pack(fill="x", padx=16)
+        tk.Label(p, text="LED STUDIO", bg=PANEL, fg=INK, font=FONT_T,
+                 anchor="w").pack(fill="x", padx=16, pady=(18, 0))
+        tk.Label(p, text=f"207 LEDs · 16 runs · {len(fx.SPATIAL)} effects",
+                 bg=PANEL, fg=MUTED, font=FONT_L, anchor="w"
+                 ).pack(fill="x", padx=16, pady=(1, 0))
+        rule = tk.Canvas(p, height=3, bg=PANEL, highlightthickness=0, bd=0)
+        rule.pack(fill="x", padx=16, pady=(10, 0))
+
+        def _rule(_e=None):
+            # accent fading into violet: one small piece of colour to anchor
+            # the panel, rather than tinting every control
+            rule.delete("all")
+            w = max(1, rule.winfo_width())
+            for i in range(w):
+                f = i / w
+                c = tuple(int(a + (b - a) * f) for a, b in
+                          zip(App.hex2rgb(ACCENT), App.hex2rgb(ACCENT2)))
+                rule.create_line(i, 0, i, 3, fill="#%02x%02x%02x" % c)
+        rule.bind("<Configure>", _rule)
 
         head("HARDWARE")
         self.ctl_btn = mkbtn(p, "Take control", self.toggle_ctl)
@@ -537,7 +572,7 @@ class App:
         self.bright_lbl = tk.Label(p, text="Master intensity: 100%", bg=PANEL,
                                    fg=INK, font=FONT_L, anchor="w")
         self.bright_lbl.pack(fill="x", padx=16)
-        tk.Scale(p, from_=0, to=100, orient="horizontal", variable=self.bright,
+        Slider(p, from_=0, to=100, orient="horizontal", variable=self.bright,
                  bg=PANEL, fg=INK, troughcolor=BTN, highlightthickness=0,
                  bd=0, sliderrelief="flat", activebackground=ACCENT,
                  font=FONT_L, showvalue=False, command=self.set_bright
@@ -545,7 +580,7 @@ class App:
         self.selbright_lbl = tk.Label(p, text="Selected LEDs: 100%", bg=PANEL,
                                       fg=MUTED, font=FONT_L, anchor="w")
         self.selbright_lbl.pack(fill="x", padx=16, pady=(6, 0))
-        tk.Scale(p, from_=0, to=100, orient="horizontal",
+        Slider(p, from_=0, to=100, orient="horizontal",
                  variable=self.selbright, bg=PANEL, fg=INK, troughcolor=BTN,
                  highlightthickness=0, bd=0, sliderrelief="flat",
                  activebackground=ACCENT, font=FONT_L, showvalue=False,
@@ -599,7 +634,7 @@ class App:
         tk.Label(p, text="speed", bg=PANEL, fg=MUTED, font=FONT_L, anchor="w"
                  ).pack(fill="x", padx=16, pady=(10, 0))
         self.speed = tk.DoubleVar(value=1.0)
-        tk.Scale(p, from_=0.1, to=8.0, resolution=0.1, orient="horizontal",
+        Slider(p, from_=0.1, to=8.0, resolution=0.1, orient="horizontal",
                  variable=self.speed, bg=PANEL, fg=INK, troughcolor=BTN,
                  highlightthickness=0, bd=0, sliderrelief="flat",
                  activebackground=ACCENT, font=FONT_L
@@ -609,7 +644,7 @@ class App:
                                  font=FONT_L, anchor="w")
         self.bars_lbl.pack(fill="x", padx=16, pady=(8, 0))
         self.bars = tk.IntVar(value=getattr(fx, "VU_BARS", 8))
-        tk.Scale(p, from_=2, to=20, orient="horizontal", variable=self.bars,
+        Slider(p, from_=2, to=20, orient="horizontal", variable=self.bars,
                  bg=PANEL, fg=INK, troughcolor=BTN, highlightthickness=0,
                  bd=0, sliderrelief="flat", activebackground=ACCENT,
                  font=FONT_L, showvalue=False, command=self.set_bars
@@ -621,7 +656,7 @@ class App:
                                  fg=MUTED, font=FONT_L, anchor="w")
         self.gain_lbl.pack(fill="x", padx=16, pady=(8, 0))
         self.gain = tk.IntVar(value=int(getattr(fx, "VU_GAIN", 1.0) * 10))
-        tk.Scale(p, from_=3, to=30, orient="horizontal", variable=self.gain,
+        Slider(p, from_=3, to=30, orient="horizontal", variable=self.gain,
                  bg=PANEL, fg=INK, troughcolor=BTN, highlightthickness=0,
                  bd=0, sliderrelief="flat", activebackground=ACCENT,
                  font=FONT_L, showvalue=False, command=self.set_gain
@@ -668,7 +703,7 @@ class App:
                                 fg=MUTED, font=FONT_L, anchor="w")
         self.opa_lbl.pack(fill="x", padx=16, pady=(8, 0))
         self.opacity = tk.IntVar(value=100)
-        tk.Scale(p, from_=5, to=100, orient="horizontal", variable=self.opacity,
+        Slider(p, from_=5, to=100, orient="horizontal", variable=self.opacity,
                  bg=PANEL, fg=INK, troughcolor=BTN, highlightthickness=0,
                  bd=0, sliderrelief="flat", activebackground=ACCENT,
                  font=FONT_L, showvalue=False, command=self.set_layer_opacity
@@ -677,7 +712,7 @@ class App:
                                 fg=MUTED, font=FONT_L, anchor="w")
         self.wpm_lbl.pack(fill="x", padx=16, pady=(10, 0))
         self.wpmcap = tk.IntVar(value=int(usage_levels.WPM_CAP))
-        tk.Scale(p, from_=int(usage_levels.WPM_CAP_MIN),
+        Slider(p, from_=int(usage_levels.WPM_CAP_MIN),
                  to=int(usage_levels.WPM_CAP_MAX), resolution=5,
                  orient="horizontal", variable=self.wpmcap, bg=PANEL, fg=INK,
                  troughcolor=BTN, highlightthickness=0, bd=0,
@@ -1245,9 +1280,10 @@ class App:
     def scaled(self, r):
         """Emitted colour: intended colour x master intensity x this LED's own."""
         f = (self.bright.get() / 100.0) * r.get("gain", 1.0)
+        f = max(0.0, min(1.0, f))       # never trust a variable to be in range
         if f >= 0.999:
             return r["rgb"]
-        return tuple(int(v * f) for v in r["rgb"])
+        return tuple(max(0, min(255, int(v * f))) for v in r["rgb"])
 
     def reapply(self):
         """Recompute every LED's output after an intensity change."""

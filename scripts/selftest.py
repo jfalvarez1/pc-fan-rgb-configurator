@@ -390,6 +390,58 @@ def test_vu():
     fx.set_vu_gain(1.0)
 
 
+def test_usage():
+    section("usage gradient")
+    import case_layout as cl
+    import rgb_effects as fx
+    import usage_levels
+
+    c0 = fx.usage_colour(0.0)
+    chk(f"idle reads blue {c0}", c0[2] > 200 and c0[0] < 60)
+    lo = fx.usage_colour(0.12)
+    chk(f"light load reads green {lo}", lo[1] > 200 and lo[0] < 80)
+    hi = fx.usage_colour(1.0)
+    chk(f"full load reads red {hi}", hi[0] > 200 and hi[1] < 60)
+    chk("red never falls as load rises",
+        all(fx.usage_colour(i / 50)[0] <= fx.usage_colour((i + 1) / 50)[0] + 1
+            for i in range(50)))
+    chk("usage below 0 and above 1 are clamped",
+        fx.usage_colour(-99) == c0 and fx.usage_colour(99) == hi)
+    chk("a missing usage value does not raise",
+        fx.fx_usage(0.5, 0.5, 1.0, None, usage=None) == c0)
+    chk("every colour component stays in range",
+        all(0 <= v <= 255 for i in range(101)
+            for v in fx.usage_colour(i / 100)))
+
+    # the physical mapping is the feature; assert it explicitly
+    lab = {}
+    for el in cl.LAYOUT:
+        lab.setdefault(cl.usage_source(el), set()).add(el["label"])
+    chk("pump and radiator fans report CPU",
+        {"Arctic pump", "Radiator L", "Radiator M", "Radiator R"}
+        <= lab.get("cpu", set()))
+    chk("GPU lighting and the bottom intake report GPU",
+        {"ZOTAC text", "logo", "Bottom F420 L", "Bottom F420 M",
+         "Bottom F420 R"} <= lab.get("gpu", set()))
+    chk("the DIMMs report RAM",
+        {"RAM 1", "RAM 2"} <= lab.get("ram", set()))
+    chk("side and rear fans report overall load",
+        {"Rear exhaust", "Side F360 top", "Side F360 mid",
+         "Side F360 bottom"} <= lab.get("all", set()))
+    chk("every element has a source",
+        all(el["id"] in cl.USAGE_SOURCES for el in cl.LAYOUT))
+
+    # a full RAM cache must not drag the whole case red
+    u = usage_levels.UsageLevels()
+    u.cpu, u.gpu, u.ram = 0.0, 0.0, 1.0
+    chk(f"RAM at 100% alone keeps overall low ({u.overall:.2f})",
+        u.overall <= 0.15, f"{u.overall:.2f}")
+    u.cpu, u.gpu, u.ram = 1.0, 1.0, 1.0
+    chk("everything pinned reaches full", u.overall > 0.95)
+    u.cpu = u.gpu = u.ram = 0.0
+    chk("everything idle reads zero", u.overall == 0.0)
+
+
 def test_matrix():
     section("matrix rain")
     import case_layout as cl
@@ -644,6 +696,7 @@ SECTIONS = {
     "layout": test_layout,
     "effects": test_effects,
     "vu": test_vu,
+    "usage": test_usage,
     "matrix": test_matrix,
     "geometry": test_layer_geometry,
     "app": test_app,

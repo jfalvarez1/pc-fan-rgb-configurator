@@ -167,6 +167,39 @@ because their colours are the point — `matrix` (green), `fire`, `lightning`.
 grid, the rain snaps to it — one key wide, falling a row at a time. On fan
 rings, which have no rows or columns, it keeps its smooth spatial form.
 
+### System usage gradient
+
+Two effects in the **System** category turn the case into a load readout
+rather than decoration.
+
+**Blue** when a component is idle, **green** under light load, through yellow
+and orange to **red** when it is pinned. Each run of LEDs reports a different
+resource, so you can see at a glance which part of the machine is busy:
+
+| Lights | Reports |
+|---|---|
+| AIO pump + the three radiator fans | **CPU** usage |
+| GPU lighting (ZOTAC text and logo) + bottom F420 intake | **GPU** usage |
+| RAM sticks | **RAM** usage |
+| Side F360 + rear exhaust + keyboard | **overall** system load |
+
+The pairing is physical: the parts cooling the CPU show the CPU, and the
+bottom intake that feeds the graphics card shows the graphics card.
+
+- **usage** - each run a flat colour, so two fans at 40% and 55% are directly
+  comparable. It is an instrument, not an animation.
+- **usage bar** - the same colours, but each run also fills in proportion to
+  its load, readable from across the room without judging hue.
+
+The colour stops are deliberately not evenly spaced. Load spends most of its
+life under 50%, so an even ramp would leave the case green nearly always and
+waste the top half of the scale.
+
+**Overall load weights RAM low** (45% CPU, 45% GPU, 10% RAM). This machine
+idles around 80-96% RAM once Windows has filled it with cache; weighting it
+equally would pin the side and rear fans red permanently and tell you nothing.
+RAM still gets its own honest readout on the DIMMs.
+
 ### VU meters
 
 `vu` (green→amber→red, like a real meter) and `vu pal` (palette-coloured) are

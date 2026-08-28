@@ -194,3 +194,23 @@ def cell_of(el, i):
     cols = int(el.get("cols", 1))
     rows = int(el.get("rows", 1))
     return (i % cols, i // cols, cols, rows)
+
+
+# Which resource each element reports, for the usage-gradient effect.
+#   cpu  the CPU's own cooling - pump and the three radiator fans
+#   gpu  the card's lighting and the bottom intake that feeds it
+#   ram  the DIMMs show their own figure
+#   all  the general-airflow fans show overall system load
+USAGE_SOURCES = {
+    "pump": "cpu", "rad_l": "cpu", "rad_m": "cpu", "rad_r": "cpu",
+    "gpu_text": "gpu", "gpu_logo": "gpu",
+    "bot1": "gpu", "bot2": "gpu", "bot3": "gpu",
+    "ram0": "ram", "ram1": "ram",
+    "side1": "all", "side2": "all", "side3": "all", "rear": "all",
+    "keyboard": "all",
+}
+
+
+def usage_source(el):
+    """Resource key for an element: cpu, gpu, ram or all."""
+    return USAGE_SOURCES.get(el["id"], "all")

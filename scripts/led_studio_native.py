@@ -45,6 +45,7 @@ import fan_side
 import fx_layers
 import openrgb_boot
 import rgb_effects as fx
+import usage_levels
 
 # Windows groups taskbar buttons by AppUserModelID. A script launched through
 # pythonw.exe inherits PYTHON'S identity, so the taskbar shows the Python icon
@@ -434,7 +435,8 @@ class App:
                     self.leds.append({"el": el, "i": i, "x": x, "y": y,
                                       "nx": nx, "ny": ny, "rgb": (0, 0, 0),
                                       "manual": (0, 0, 0), "item": None, "gain": 1.0,
-                                      "cell": case_layout.cell_of(el, i)})
+                                      "cell": case_layout.cell_of(el, i),
+                                      "usrc": case_layout.usage_source(el)})
                     continue
                 h = el.get("cell", 27) / 2 - 2
                 item = c.create_rectangle(x - h, y - h, x + h, y + h,
@@ -447,7 +449,8 @@ class App:
                                      width=1)
             rec = {"el": el, "i": i, "x": x, "y": y, "nx": nx, "ny": ny,
                    "rgb": (0, 0, 0), "manual": (0, 0, 0), "item": item, "gain": 1.0,
-                   "cell": case_layout.cell_of(el, i)}
+                   "cell": case_layout.cell_of(el, i),
+                   "usrc": case_layout.usage_source(el)}
             self.leds.append(rec)
             self.byel.setdefault(el["id"], []).append(rec)
 
@@ -1399,12 +1402,22 @@ class App:
                 fn = fx.SPATIAL[self.effect] if self.effect else None
                 # resolved once per frame, not per LED
                 base_cells = self.effect in fx.CELL_AWARE
+                base_usage = self.effect in fx.USAGE_AWARE
+                if base_usage or any(l.effect in fx.USAGE_AWARE for l in live):
+                    usage_levels.SHARED.start()
+                    lv = {k: usage_levels.SHARED.value(k)
+                          for k in ("cpu", "gpu", "ram", "all")}
+                else:
+                    lv = None
                 # Base pass. With no global effect the manually painted
                 # colour is the background, so layers composite over painting
                 # instead of erasing it.
                 for r in self.leds:
                     if fn is None:
                         r["c"] = r.get("manual", (0, 0, 0))
+                    elif base_usage:
+                        r["c"] = fn(r["nx"], r["ny"], t, pal,
+                                    usage=lv[r["usrc"]])
                     elif base_cells and r["cell"]:
                         r["c"] = fn(r["nx"], r["ny"], t, pal, cell=r["cell"])
                     else:
@@ -1417,11 +1430,15 @@ class App:
                     lpal = self.palette_for(lay.palette, pal)
                     lt = t * lay.speed
                     cells = lay.effect in fx.CELL_AWARE
+                    uses = lay.effect in fx.USAGE_AWARE
                     for r in lay.members:
                         u, v = lay.local(r["x"], r["y"])
-                        col = (lfn(u, v, lt, lpal, cell=r["cell"])
-                               if cells and r["cell"]
-                               else lfn(u, v, lt, lpal))
+                        if uses:
+                            col = lfn(u, v, lt, lpal, usage=lv[r["usrc"]])
+                        elif cells and r["cell"]:
+                            col = lfn(u, v, lt, lpal, cell=r["cell"])
+                        else:
+                            col = lfn(u, v, lt, lpal)
                         r["c"] = lay.apply(r["c"], col)
                 for r in self.leds:
                     self.set_led(r, r["c"])
@@ -1620,6 +1637,7 @@ class App:
         self.effect = None
         try:
             fan_side.GPU.stop()
+            usage_levels.SHARED.stop()
         except Exception:
             pass
         self._holding = bool(self.keep_var.get() and self.controlling)

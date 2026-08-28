@@ -606,12 +606,69 @@ PALETTES = {
 # Per-effect palette overrides, so each effect can carry its own look.
 # Effects that are intrinsically coloured (matrix green, fire, lightning)
 # ignore the palette by design - noted here rather than hidden.
-IGNORES_PALETTE = {"matrix", "fire", "lightning"}
+IGNORES_PALETTE = {"matrix", "fire", "lightning", "usage"}
+
+
+# ---- resource usage gradient ---------------------------------------------
+#
+# Blue when a component is doing nothing, green when it is working lightly,
+# red when it is loaded. Each run of LEDs reports a different resource - see
+# case_layout.USAGE_SOURCES - so the case reads as a dashboard rather than as
+# one number smeared over everything.
+#
+# The stops are not evenly spaced on purpose. Load spends most of its life
+# under 50%, so an even ramp would leave the case green almost always and
+# waste the whole top half of the scale. Green is reached early and the warm
+# half is stretched across the range that actually distinguishes "busy" from
+# "pinned".
+USAGE_STOPS = [
+    (0.00, (0, 60, 255)),      # idle - blue
+    (0.10, (0, 255, 120)),     # ticking over - green
+    (0.45, (215, 255, 0)),     # working - yellow-green
+    (0.75, (255, 140, 0)),     # busy - orange
+    (1.00, (255, 0, 0)),       # pinned - red
+]
+
+
+def usage_colour(u):
+    """Colour for a 0..1 usage level, interpolated between USAGE_STOPS."""
+    u = 0.0 if u is None else max(0.0, min(1.0, float(u)))
+    for (t0, c0), (t1, c1) in zip(USAGE_STOPS, USAGE_STOPS[1:]):
+        if u <= t1:
+            span = t1 - t0
+            f = 0.0 if span <= 0 else (u - t0) / span
+            return tuple(int(round(a + (b - a) * f)) for a, b in zip(c0, c1))
+    return USAGE_STOPS[-1][1]
+
+
+def fx_usage(nx, ny, t, palette, usage=None):
+    """Solid colour per run, showing that component's load.
+
+    Flat rather than animated: this is an instrument. A gradient across each
+    fan would look livelier and make two fans at 40% and 55% impossible to
+    tell apart, which is the entire point of the effect.
+    """
+    return usage_colour(usage)
+
+
+def fx_usage_bar(nx, ny, t, palette, usage=None):
+    """Same colours, but each run also FILLS in proportion to its load, so it
+    can be read at a glance from across the room rather than by judging hue."""
+    u = 0.0 if usage is None else max(0.0, min(1.0, float(usage)))
+    col = usage_colour(u)
+    lit = (1.0 - ny - _FX_LO) / _FX_SPAN
+    lit = max(0.0, min(1.0, lit))
+    if lit > u:
+        return tuple(int(c * 0.10) for c in col)     # unfilled: a dim hint
+    return col
 
 # Effects that render better when told the LED's physical grid cell. The
 # renderer passes cell=(col, row, cols, rows) for LEDs on a matrix element and
 # omits it everywhere else, so ring layouts are untouched.
 CELL_AWARE = {"matrix"}
+
+# Effects that are given their element's resource level by the renderer.
+USAGE_AWARE = {"usage", "usage bar"}
 
 
 # ===========================================================================
@@ -769,6 +826,9 @@ EFFECT_GROUPS = {
     "Fill":    ["concentric", "fill", "stack", "wipe", "bounce", "starburst"],
     "Scatter": ["rain", "twinkle", "confetti", "juggle", "strobe", "lightning"],
     "Glow":    ["breathe", "pulse", "split", "spectrum", "fire"],
+    # Not decoration: these read out live load, so they get their own group
+    # rather than hiding among the animations.
+    "System":  ["usage", "usage bar"],
 }
 
 
@@ -963,6 +1023,7 @@ def set_vu_gain(g):
     return VU_GAIN
 
 
-SPATIAL.update({"vu": fx_vu, "vu pal": fx_vu_palette})
+SPATIAL.update({"vu": fx_vu, "vu pal": fx_vu_palette,
+                "usage": fx_usage, "usage bar": fx_usage_bar})
 EFFECT_GROUPS["Fill"] = ["concentric", "fill", "stack", "wipe", "bounce",
                          "starburst", "vu", "vu pal"]

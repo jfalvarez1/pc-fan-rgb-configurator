@@ -94,7 +94,17 @@ POLL = 3.0
 # between samples at idle. Heavier smoothing and a wider deadband stop that
 # jitter turning into a stream of redundant PWM writes (observed flip-flopping
 # between 35% and 38% while the hardware sat still at 34.9%).
-EMA_ALPHA = 0.08
+EMA_ALPHA = 0.08            # falling: slow, so jitter does not cause writes
+# RISING IS DIFFERENT. At 0.08 the time constant is about 38 seconds, so on a
+# spike the duty was being computed from a temperature half a minute old -
+# measured: the curve demanded 100% while the radiator sat at 83-96%. On a CPU
+# with roughly 6 C of headroom that lag is the whole problem, and it is not
+# fixed by a steeper curve: the curve already asks for 100% at 78 C and this
+# CPU runs into the high 80s.
+#
+# So rise fast and fall slow, the same asymmetry the VU meter uses. Ramping up
+# late costs headroom; ramping down late costs nothing but a little noise.
+EMA_RISE = 0.5              # rising: ~6 s, so a spike is met almost at once
 DEADBAND = 6
 FALL_DELAY = 45.0
 
@@ -376,8 +386,11 @@ def main():
                     drift_polls = 0
                     reasserts = 0
             if cpu is not None:
-                smoothed = cpu if smoothed is None else (
-                    EMA_ALPHA * cpu + (1 - EMA_ALPHA) * smoothed)
+                if smoothed is None:
+                    smoothed = cpu
+                else:
+                    a = EMA_RISE if cpu > smoothed else EMA_ALPHA
+                    smoothed = a * cpu + (1 - a) * smoothed
 
             def r1(v):
                 return "n/a" if v is None else f"{v:.1f}"

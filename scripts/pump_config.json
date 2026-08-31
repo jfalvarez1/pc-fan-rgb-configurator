@@ -1,5 +1,5 @@
 {
-  "pump_duty": 56.0,
+  "pump_duty": 64.0,
   "map": [
     {
       "duty": 80,
@@ -26,5 +26,5 @@
       "rpm": 1771.653564453125
     }
   ],
-  "rationale": "56% = 2163 rpm = 76% of the 2830 max. Inside the 60-80%-of-max guidance band, well clear of cavitation territory, and far below the saturation zone where 72-100% duty all produce ~2750+ rpm for no benefit. Change pump_duty to 64.0 for 2398 rpm (85%) if CPU temps under sustained load look high."
+  "rationale": "64% = 2398 rpm = 85% of the 2830 max. Raised from 56% (2163 rpm, 76%) after a live audit found the CPU reaching 88.6 C with the radiator already demanding 100% - flow was the only lever left, since the radiator cannot be asked for more than full speed. Still a FIXED duty, which is the property that actually protects the pump: speed cycling is the wear mechanism, not steady rpm. Still far below maximum, and far above the low-rpm cavitation range that does real damage. Drop back to 56.0 if pump noise becomes objectionable; the measured map is below."
 }

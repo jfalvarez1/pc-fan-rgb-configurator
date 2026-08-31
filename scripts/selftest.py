@@ -131,6 +131,36 @@ def test_limits():
         chk("pump is not trimmable at all",
             "pump" not in fan_tuning.TRIM_KEYS)
 
+    # --- cooling profiles: quiet must be gentler everywhere, and both must
+    # still be able to reach full speed. A "quiet" profile that cannot reach
+    # 100% is not quieter, it is a thermal limit with a friendly name.
+    for ch in trl.FAN_CHANNELS:
+        for src in trl.FAN_CHANNELS[ch]["curves"]:
+            agg = trl.channel_curves(ch, "aggressive").get(src)
+            qui = trl.channel_curves(ch, "quiet").get(src)
+            if not (agg and qui):
+                continue
+            hotter = [t for t in range(30, 101)
+                      if trl.interpolate(qui, t) > trl.interpolate(agg, t) + 1e-9]
+            chk(f"quiet {ch}/{src} never asks for more than aggressive",
+                not hotter, f"{len(hotter)} temperatures")
+        chk(f"quiet {ch} still reaches full speed by 95C",
+            max(trl.interpolate(c, 95)
+                for c in trl.channel_curves(ch, "quiet").values()) >= 75)
+    ca, fa = md.rad_curve_for("aggressive")
+    cq, fq = md.rad_curve_for("quiet")
+    hotter = [t for t in range(30, 101)
+              if md.interpolate(cq, t) > md.interpolate(ca, t) + 1e-9]
+    chk("quiet radiator never asks for more than aggressive", not hotter)
+    chk("quiet radiator still reaches 100%", md.interpolate(cq, 95) == 100)
+    chk("aggressive radiator reaches 100% inside the real load range",
+        md.interpolate(ca, 80) == 100)
+    chk("quiet floor is not below the stall-safe minimum", fq >= 20, str(fq))
+    chk("an unknown profile name falls back to a real one",
+        fan_tuning.DEFAULT_PROFILE in fan_tuning.PROFILES)
+    chk("the pump is not switched by the profile",
+        all("pump" not in p for p in fan_tuning.PROFILES))
+
     # --- a trim can never push a fan outside its hard clamps
     worst = []
     for ch, cfg2 in trl.FAN_CHANNELS.items():

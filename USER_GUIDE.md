@@ -333,6 +333,24 @@ Why per-sensor rather than "hottest sensor wins": 80 °C is hot for a GPU core,
 unremarkable for a 9800X3D and cool for GDDR7. Converting each sensor to a duty
 *first*, then taking the maximum, compares like with like.
 
+### Cooling profiles
+
+A button at the top of the Fans tab, and the setting is remembered - it
+survives closing the app, exactly like the lighting settings.
+
+- **Aggressive** (default) - what the measured tuning produced. Cooling first,
+  noise not a constraint.
+- **Quiet** - every knee later and lower. It costs roughly 4 C on the GPU,
+  which is the trade the original tuning deliberately refused; it is offered
+  here as a choice rather than a default.
+
+Both reach full speed eventually - a "quiet" profile that could not reach 100%
+would not be quieter, it would be a thermal limit with a friendly name. The
+switch applies within one poll, with no restart.
+
+**The pump is not part of the profile.** It is inaudible on this machine, so
+slowing it buys nothing and costs flow. It stays at its fixed duty either way.
+
 ### Curve trim
 
 Four sliders shift a whole curve up or down by up to **15 duty points**. They
@@ -380,7 +398,11 @@ Choose from the measured duty→rpm points:
 The response **saturates early** — everything from 72% up produces ~2750+ rpm,
 so 28 points of duty buy about 80 rpm. The usable range is 40–72%.
 
-Default is **56% → 2163 rpm = 76% of maximum**: inside the usual "keep a pump
+Set to **64% → 2398 rpm = 85% of maximum**, raised from 56% after a live
+audit found the CPU reaching 88.6 C with the radiator already demanding 100%.
+Flow was the only lever left, because a radiator cannot be asked for more than
+full speed. Still a FIXED duty, which is the property that actually protects
+the pump - speed cycling is the wear mechanism, not steady rpm: inside the usual "keep a pump
 at 60–80% of maximum" guidance, well clear of the low-RPM cavitation that
 actually damages pumps, and below the saturation zone that only adds wear.
 

@@ -107,6 +107,36 @@ FAN_CHANNELS = {
     },
 }
 
+# QUIET profile. Every knee later and lower than the tuned curves above -
+# the same shape, shifted. This is the trade the measured tuning deliberately
+# refused (it cost 3.7 C on GPU core and 4.2 C on VRAM), offered here as a
+# choice rather than a default.
+QUIET_CURVES = {
+    "fan1": {
+        "gpu_core": [(52, 22), (62, 32), (70, 48), (78, 68), (86, 90)],
+        "gpu_vram": [(58, 22), (68, 32), (76, 48), (84, 68), (92, 90)],
+        "cpu_tctl": [(76, 22), (85, 35), (91, 55), (95, 75)],
+    },
+    "fan2": {
+        "gpu_core": [(52, 24), (62, 34), (70, 50), (78, 70), (86, 92)],
+        "gpu_vram": [(58, 24), (68, 34), (76, 50), (84, 70), (92, 92)],
+        "cpu_tctl": [(76, 24), (85, 36), (91, 56), (95, 76)],
+    },
+    "fan3": {
+        "gpu_core": [(52, 24), (62, 34), (70, 50), (78, 70), (86, 92)],
+        "gpu_vram": [(58, 24), (68, 34), (76, 50), (84, 70), (92, 92)],
+        "cpu_tctl": [(72, 26), (82, 38), (89, 58), (94, 78)],
+    },
+}
+
+
+def channel_curves(ch, profile):
+    """The curve set this channel should run under the given profile."""
+    if profile == "quiet" and ch in QUIET_CURVES:
+        return QUIET_CURVES[ch]
+    return FAN_CHANNELS[ch]["curves"]
+
+
 # Where sensors.json lives (written by the elevated mobo_daemon)
 SENSOR_FILE = "sensors.json"
 SENSOR_MAX_AGE = 30.0      # ignore stale data if the mobo daemon stops
@@ -973,9 +1003,10 @@ def main():
 
             # fans: each sensor proposes a duty; the loudest demand wins
             trims = fan_tuning.load_trims()
+            profile = fan_tuning.load_profile()
             for ch, cfg in FAN_CHANNELS.items():
                 proposals = {}
-                for src, curve in cfg["curves"].items():
+                for src, curve in channel_curves(ch, profile).items():
                     t = smoothed.get(src)
                     if t is not None:
                         proposals[src] = interpolate(curve, t)

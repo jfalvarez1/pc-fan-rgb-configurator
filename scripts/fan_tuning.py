@@ -18,6 +18,38 @@ TRIM_FILE = pathlib.Path(__file__).resolve().parent / "fan_tuning.json"
 TRIM_LIMIT = 15.0          # duty points, either direction
 TRIM_KEYS = ("fan1", "fan2", "fan3", "rad")
 
+# Cooling profile. AGGRESSIVE is the default and is what the measured tuning
+# produced: cooling first, noise not a constraint. QUIET trades temperature
+# for silence by moving every knee later and lower.
+#
+# The PUMP is not part of this. It is a fixed duty chosen for flow and
+# longevity and it is inaudible on this machine, so there is nothing to gain
+# by slowing it and something real to lose.
+PROFILES = ("aggressive", "quiet")
+DEFAULT_PROFILE = "aggressive"
+
+
+def load_profile():
+    """Current profile name. Anything unrecognised falls back to the default,
+    so a hand-edited or truncated file cannot leave the fans in limbo."""
+    try:
+        name = json.loads(TRIM_FILE.read_text()).get("profile")
+    except Exception:
+        return DEFAULT_PROFILE
+    return name if name in PROFILES else DEFAULT_PROFILE
+
+
+def save_profile(name):
+    if name not in PROFILES:
+        name = DEFAULT_PROFILE
+    try:
+        cur = json.loads(TRIM_FILE.read_text())
+    except Exception:
+        cur = {}
+    cur["profile"] = name
+    TRIM_FILE.write_text(json.dumps(cur, indent=2))
+    return name
+
 
 def load_trims():
     """{key: offset} with every value clamped. Missing file -> all zero."""

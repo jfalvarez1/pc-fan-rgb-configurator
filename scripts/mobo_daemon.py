@@ -63,8 +63,23 @@ PUMP_MIN_SAFE = 40.0        # hard floor on DUTY. This pump saturates
 # Measured: CPU had the LEAST headroom of the three sensors (7.4 C to Tjmax
 # vs 15 C for GPU core, 19 C for VRAM), and the radiator is the CPU's only
 # cooling. Noise is not a constraint, so this ramps hard and early.
-RAD_CURVE = [(40, 40), (50, 55), (60, 72), (70, 88), (78, 100)]
+# Steeper through the band this CPU actually runs in. It reached 100% at
+# 78 C before, but the measured load range was 80-88 C - so the top of the
+# curve was doing nothing and the climb to it was the only part that mattered.
+# Full speed now arrives at 72 C. The idle end is unchanged: there is nothing
+# to cool at 40 C and moving that would only add noise for no temperature.
+RAD_CURVE = [(40, 40), (50, 58), (58, 76), (65, 90), (72, 100)]
 RAD_MIN_DUTY = 40
+
+# QUIET profile for the radiator: later and lower, same shape.
+RAD_CURVE_QUIET = [(45, 32), (58, 45), (68, 62), (78, 82), (88, 100)]
+RAD_MIN_DUTY_QUIET = 30
+
+
+def rad_curve_for(profile):
+    if profile == "quiet":
+        return RAD_CURVE_QUIET, RAD_MIN_DUTY_QUIET
+    return RAD_CURVE, RAD_MIN_DUTY
 
 # --- the pump is pinned ONCE at startup, and that turned out not to be enough.
 # Found with the pump sitting at 24.7% (1369 rpm - below the 1500 rpm abort
@@ -403,8 +418,9 @@ def main():
 
             if smoothed is not None:
                 rad_trim = fan_tuning.load_trims().get("rad", 0.0)
-                target = max(RAD_MIN_DUTY,
-                             min(100, round(interpolate(RAD_CURVE, smoothed)
+                _curve, _floor = rad_curve_for(fan_tuning.load_profile())
+                target = max(_floor,
+                             min(100, round(interpolate(_curve, smoothed)
                                             + rad_trim)))
                 change = False
                 if commanded is None:

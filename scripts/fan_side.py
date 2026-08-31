@@ -107,6 +107,23 @@ class FanSidePanel:
         self.gpu_box = tk.Frame(p, bg=self.bg)
         self.gpu_box.pack(fill="x", padx=16)
 
+        head("COOLING PROFILE")
+        self.prof_btn = tk.Label(p, text="", bg=BTN, fg=INK, font=FONT_M,
+                                 padx=10, pady=8, cursor="hand2",
+                                 highlightthickness=1,
+                                 highlightbackground=LINE)
+        self.prof_btn.pack(fill="x", padx=16, pady=2)
+        self.prof_btn.bind("<Button-1>", lambda e: self.cycle_profile())
+        tk.Label(p, text="Aggressive is the default and is what the measured\n"
+                         "tuning produced. Quiet moves every knee later and\n"
+                         "lower - it costs about 4 C on the GPU. The pump is\n"
+                         "unaffected either way: it is inaudible here, so\n"
+                         "there is nothing to gain by slowing it.\n"
+                         "Applies live, and survives closing the app.",
+                 bg=self.bg, fg=MUTED, font=FONT_S, anchor="w", justify="left"
+                 ).pack(fill="x", padx=16, pady=(0, 4))
+        self._show_profile()
+
         head("CURVE TRIM")
         tk.Label(p, text="Shifts a whole curve by up to "
                          + str(int(fan_tuning.TRIM_LIMIT))
@@ -170,6 +187,27 @@ class FanSidePanel:
                          "owns the header - run Fix Cooling.bat (elevated).",
                  bg=self.bg, fg=MUTED, font=FONT_S, anchor="w", justify="left"
                  ).pack(fill="x", padx=16, pady=(0, 18))
+
+    # ---- cooling profile
+
+    def _show_profile(self):
+        name = fan_tuning.load_profile()
+        hot = name == "aggressive"
+        self.prof_btn.config(
+            text=("Cooling: AGGRESSIVE" if hot else "Cooling: quiet"),
+            bg=ACCENT if hot else BTN,
+            fg="#ffffff" if hot else INK,
+            highlightbackground=ACCENT if hot else LINE)
+
+    def cycle_profile(self):
+        order = list(fan_tuning.PROFILES)
+        cur = fan_tuning.load_profile()
+        nxt = order[(order.index(cur) + 1) % len(order)]
+        fan_tuning.save_profile(nxt)
+        self._show_profile()
+        if self.on_change:
+            self.on_change(f"cooling profile: {nxt} - live within one poll, "
+                           f"and remembered")
 
     # ---- edits
 

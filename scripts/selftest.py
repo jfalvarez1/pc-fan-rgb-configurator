@@ -799,6 +799,33 @@ def test_app():
         chk("reset returns every LED to full", all(r["gain"] == 1.0
                                                    for r in app.leds))
 
+        # Minimised, the picture stops but the lighting must not. Compositing
+        # the LED field is the most expensive thing the app does and there is
+        # nobody looking at it, but the effect clock and the hardware writes
+        # have to carry on or minimising would freeze the case.
+        renders = []
+        real_render = app.renderer.render
+        app.renderer.render = lambda *a, **k: (renders.append(1),
+                                               real_render(*a, **k))[1]
+        try:
+            app._hidden = True
+            app._dirty = True
+            app._last_paint = 0.0
+            app.repaint()
+            chk("minimised: the canvas is not composited", not renders,
+                f"{len(renders)} renders")
+            posted.clear()
+            app.push()
+            chk("minimised: the hardware still gets frames", bool(posted),
+                f"{len(posted)} elements")
+            app._hidden = False
+            app._last_paint = 0.0
+            app.repaint(force=True)
+            chk("restoring redraws immediately", bool(renders),
+                f"{len(renders)} renders")
+        finally:
+            app.renderer.render = real_render
+
         # state round trip - deselect first so this targets the global effect
         app.active = None
         app.start_fx("plasma")

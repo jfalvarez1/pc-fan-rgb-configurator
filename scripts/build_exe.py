@@ -34,7 +34,10 @@ NAME = "LEDStudio"
 # analysis does not see them.
 HIDDEN = [
     "openrgb", "openrgb.utils", "openrgb.orgb", "openrgb.network",
-    "PIL.ImageTk", "PIL._tkinter_finder",
+    "PIL.ImageTk", "PIL._tkinter_finder", "PIL.Image", "PIL.IcoImagePlugin",
+    # pystray picks its backend at import time, so the win32 one is never a
+    # visible import and PyInstaller cannot find it on its own.
+    "pystray", "pystray._win32", "tray_icon",
     "psutil", "numpy", "soundcard",
     "led_player", "usage_levels", "audio_levels", "fan_side", "fan_panel",
     "fx_layers", "ui_widgets", "led_render", "case_layout", "rgb_effects",

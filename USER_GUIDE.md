@@ -47,11 +47,37 @@ see [Troubleshooting](#troubleshooting).
 
 ## Starting it
 
-Double-click **LED Studio** (desktop shortcut), or:
+Double-click **LED Studio** (desktop shortcut), or run the app directly:
 
 ```
-pythonw C:\HardwareControl\scripts\led_studio_native.py
+C:\HardwareControl\LEDStudio\LEDStudio.exe
 ```
+
+It is a standalone executable — no console, no Python window, its own icon and
+its own taskbar button. (The source still runs as a script if you prefer:
+`pythonw C:\HardwareControl\scripts\led_studio_native.py`. Rebuild the exe with
+`python scripts\build_exe.py`.)
+
+Only one copy runs at a time. Launching it again — from the desktop, or because
+the Startup shortcut fired while you clicked the icon — brings the existing
+window to the front instead of opening a second editor.
+
+### Closing it (the X button)
+
+**X docks it to the tray, it does not quit.** The icon goes to the notification
+area — the `^` arrow near the clock, where Windows hides icons you have not
+pinned. Drag it out of that flyout onto the taskbar to keep it visible.
+
+While docked the lighting keeps running in the same process: same effect, same
+layers, same speed, and it keeps holding the LEDs so the daemon does not take
+them back. It also stops drawing the case picture, which nobody is looking at —
+**measured 2.50 % CPU with the window open, 0.27 % docked, an 89 % reduction.**
+
+* **left-click the tray icon** — bring the editor back
+* **right-click → Quit** — actually exit
+
+On a real quit, "Keep animation on exit" still applies: the animation is handed
+to a small background player so the case does not freeze.
 
 OpenRGB is started automatically if it is not already running.
 

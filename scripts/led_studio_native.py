@@ -50,6 +50,7 @@ import rgb_effects as fx
 import usage_levels
 from led_render import LedRenderer
 from ui_widgets import RoundButton, Slider
+import tray_icon
 
 # Windows groups taskbar buttons by AppUserModelID. A script launched through
 # pythonw.exe inherits PYTHON'S identity, so the taskbar shows the Python icon
@@ -503,6 +504,15 @@ class App:
         self._dirty = True
         self._last_paint = 0.0
 
+        # Minimised or otherwise not on screen. Tk sends <Unmap> when a window
+        # is iconified and <Map> when it comes back, and those fire on child
+        # widgets too, so the handler filters to the toplevel itself - binding
+        # without that check made every panel that got packed or hidden look
+        # like the window disappearing.
+        self._hidden = False
+        root.bind("<Unmap>", self._on_visibility, add="+")
+        root.bind("<Map>", self._on_visibility, add="+")
+
         self._build_case()
         self._build_panel(self.panel_light)
         self.fan_side = fan_side.FanSidePanel(self.panel_fan, PANEL,
@@ -549,7 +559,21 @@ class App:
                       lambda e, a=dx, b=dy: self.nudge_layer(a * 10, b * 10))
 
         self.hw.start()
-        root.protocol("WM_DELETE_WINDOW", self.close)
+        # X hides to the notification area rather than exiting, so the
+        # lighting keeps running in THIS process - no state to save and
+        # reload, no second process to hand the animation to, and the flag is
+        # never let go. Quit from the tray menu is the real exit.
+        #
+        # If the tray is unavailable for any reason, X closes the app as it
+        # always did: an icon you cannot see must not become a window you
+        # cannot close.
+        self.tray = tray_icon.TrayIcon(
+            root, on_open=self.restore_window, on_quit=self.close,
+            icon=icon_path() if icon_path().exists() else None)
+        if self.tray.start():
+            root.protocol("WM_DELETE_WINDOW", self.hide_to_tray)
+        else:
+            root.protocol("WM_DELETE_WINDOW", self.close)
         self._tick_id = root.after(UI_MS, self.tick)
 
     # ---------- canvas
@@ -1683,6 +1707,43 @@ class App:
                                    + [(0, 0, 0)] * el["count"])[:el["count"]]
         self.hw.post(frame)
 
+    def hide_to_tray(self):
+        """X was pressed: go to the tray, keep everything running.
+
+        The state file is written on the way down so a later crash or a
+        power cut costs nothing, exactly as a real close would.
+        """
+        self.save_state()
+        self.tray.hide()
+        self._hidden = True
+        self.say("minimised to the tray - lighting is still running")
+
+    def restore_window(self):
+        self.tray.show()
+        self._hidden = False
+        self._dirty = True
+        self.repaint(force=True)
+
+    def _on_visibility(self, ev):
+        """Track whether the window is actually on screen.
+
+        `state()` is the authority rather than the event type: a window can be
+        unmapped for reasons other than minimising, and asking outright avoids
+        having to enumerate them.
+        """
+        if ev.widget is not self.root:
+            return                      # a child widget, not the window
+        try:
+            hidden = self.root.state() in ("iconic", "withdrawn")
+        except Exception:
+            hidden = False
+        if hidden == self._hidden:
+            return
+        self._hidden = hidden
+        if not hidden:
+            self._dirty = True
+            self.repaint(force=True)    # come back to a current picture
+
     def repaint(self, force=False):
         """Composite the LED field, at most every PAINT_MS.
 
@@ -1691,6 +1752,15 @@ class App:
         second.
         """
         if not (self._dirty or force):
+            return
+        # Minimised, there is nobody to show it to. Compositing the LED field
+        # is the single most expensive thing this app does - supersampled
+        # masks, a numpy max-composite and a PhotoImage upload, every 50 ms -
+        # and Tk will happily keep doing all of it into a window that is not
+        # on screen. The EFFECT clock and the hardware writes are untouched,
+        # so the case keeps animating; only the picture of it stops.
+        if self._hidden:
+            self._dirty = True       # so the first frame back is drawn
             return
         now = time.monotonic()
         if not force and (now - self._last_paint) * 1000.0 < PAINT_MS:
@@ -1932,6 +2002,14 @@ class App:
 
     def close(self):
         self.save_state()
+        # Take the tray icon down first. Leaving it behind gives Windows an
+        # icon for a process that no longer exists - it lingers until the
+        # user hovers over it, which looks exactly like the app failed to
+        # exit.
+        try:
+            self.tray.stop()
+        except Exception:
+            pass
         # Recorded BEFORE self.effect is cleared further down, or the handoff
         # would always see "nothing was running" and never start.
         animating = bool(self.effect or any(l.on for l in self.layers))

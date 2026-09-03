@@ -44,7 +44,8 @@ GPU-only if the elevated daemon is not running.
 ## Dependencies
 
 ```
-pip install openrgb-python liquidctl psutil pythonnet
+pip install openrgb-python liquidctl psutil pythonnet pystray pillow numpy
+pip install pyinstaller        # only to build the .exe
 ```
 
 Plus, downloaded separately (not committed):

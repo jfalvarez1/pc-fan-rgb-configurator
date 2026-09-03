@@ -290,11 +290,21 @@ class FanPanel:
                    else f"{name}  NOT RUNNING"
                    + (f" (last seen {age/60:.0f} min ago)"
                       if age is not None else ""))
-            c.create_text(cx + 14, y + 18, text=txt, fill=INK if ok else BAD,
-                          font=FONT_M, anchor="w")
+            item = c.create_text(cx + 14, y + 18, text=txt,
+                                 fill=INK if ok else BAD,
+                                 font=FONT_M, anchor="w")
             if not ok:
                 self.notes.append(f"{name} is not running")
-            cx += 300
+            # Advance by what was actually drawn, not by a guess. The healthy
+            # text is short and 300 px was fine for it; "NOT RUNNING (last
+            # seen 12 min ago)" is half as wide again, so the next entry was
+            # drawn straight through it - and the one case where this banner
+            # has to be legible is precisely when something is wrong.
+            try:
+                bx = c.bbox(item)
+                cx = max(cx + 300, bx[2] + 24)
+            except Exception:
+                cx += 300
         t = d["temps"]
         readout = "   ".join(
             f"{SRC_LABEL.get(k, k)} {t[k]:.0f}°C"

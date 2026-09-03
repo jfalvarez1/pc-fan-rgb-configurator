@@ -1,8 +1,23 @@
 # pc-fan-rgb-configurator
 
-Open-source replacement for SignalRGB / NZXT CAM / iCUE on one specific
-machine: fan curves, pump control and per-LED RGB, driven by Python, tuned
-from measured thermal data rather than guesswork.
+Open-source replacement for SignalRGB / NZXT CAM / iCUE: fan curves, pump
+control and per-LED RGB, tuned from measured thermal data rather than
+guesswork.
+
+**Free for anyone to configure to their own system — fork it and build on it.**
+The layout, the curves and the device map are all data, not hard-coded
+assumptions, so pointing it at different hardware means editing
+`case_layout.py` and the curve tables rather than rewriting the engine. Every
+measurement in this file is from one specific machine; yours will differ, and
+the tooling to re-measure it (`pump_map.py`, `identify_fans.py`,
+`identify_rgb.py`, `bench_logger.py`) ships with it. Pull requests, forks and
+hardware reports are all welcome.
+
+![LED Studio](docs/screenshots/01-main-window.png)
+
+Every LED is drawn where it physically sits in the case, so an effect is aimed
+at the machine rather than at a list of channels. See
+**[the screenshot tour](USER_GUIDE.md#what-it-looks-like)** for the rest.
 
 **[USER_GUIDE.md](USER_GUIDE.md) is the how-to.** This file is the why: the
 hardware quirks, the measurements, and the bugs that produced each decision.
@@ -780,3 +795,40 @@ Only one program may own a device. Known contenders on this machine:
 `data/` holds the raw measurement CSVs behind the tuning, the pump map, and
 the confirmed hardware maps. They are machine-specific but are the evidence
 for every number in this document.
+
+---
+
+## Using it on your machine
+
+**[MIT licensed](LICENSE)** — use it, change it, redistribute it, ship it in
+something commercial. Fork it and make it yours. No telemetry, no account, no
+service to depend on.
+
+Almost everything specific to this build is data rather than code:
+
+| Yours will differ | Change |
+|---|---|
+| Which fan and LED devices exist | `scripts/rgb_labels.json`, `data/fan_map.json`, `data/mobo_fan_map.json` |
+| Where each LED physically sits | `scripts/case_layout.py` — coordinates and run sizes |
+| Fan and radiator curves | `FAN_CHANNELS` in `thermal_rgb_loop.py`, `RAD_CURVE` in `mobo_daemon.py` |
+| Pump duty and its safety floor | `scripts/pump_config.json`, `PUMP_MIN_SAFE` |
+| Which component drives which lights | `USAGE_SOURCES` in `case_layout.py` |
+
+Measure before you copy any number out of this file. The tools that produced
+them ship with the project:
+
+```
+python scripts\identify_rgb.py        # which device/zone is which light
+python scripts\identify_fans.py       # which header is which fan
+python scripts\pump_map.py            # pump duty -> rpm, and a safe floor
+python scripts\bench_logger.py        # log temps/rpm under real load
+python scripts\selftest.py            # 263 checks, no hardware touched
+```
+
+**A word of caution, since this drives cooling:** the pump floor and the
+minimum fan duties are the safety story. `selftest.py` tests them at and past
+their edges, and it is worth running after any change to a curve. Do not lower
+`PUMP_MIN_SAFE` below a value you have actually measured on your own pump.
+
+Contributions welcome — especially maps and curves for other boards, coolers
+and controllers. Open an issue with what you measured, or send a pull request.

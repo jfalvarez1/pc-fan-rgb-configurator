@@ -7,6 +7,7 @@ it is — the hardware quirks, the measurements, the bugs — see `README.md`.
 
 ## Contents
 
+- [What it looks like](#what-it-looks-like)
 - [The three programs](#the-three-programs)
 - [Starting it](#starting-it)
 - [The Lighting tab](#the-lighting-tab)
@@ -25,6 +26,100 @@ it is — the hardware quirks, the measurements, the bugs — see `README.md`.
 - [Autostart](#autostart)
 - [Troubleshooting](#troubleshooting)
 - [File reference](#file-reference)
+
+---
+
+## What it looks like
+
+Every shot below is the real app on the real hardware map. Regenerate them
+after a UI change with `python scripts\make_screenshots.py` — it runs against a
+throwaway copy of your settings, so it cannot alter your lighting.
+
+### The editor
+
+![LED Studio main window](docs/screenshots/01-main-window.png)
+
+The case is drawn to scale: radiator fans along the top, the pump and RAM in
+the middle, the GPU as a block, intake fans down the right and along the
+bottom, and the keyboard underneath. Effects are computed from each LED's real
+position, which is why a wave sweeps *across the machine* instead of marching
+through a channel list. The right-hand panel is hardware control, selection,
+colour, intensity, palette and the effect picker.
+
+### Effects — 39 of them, in seven categories
+
+![Effect categories](docs/screenshots/02-effect-categories.png)
+
+Pick a category and the row underneath swaps to its effects. The current one
+stays highlighted, and each effect remembers the palette you last used with it.
+
+![Plasma](docs/screenshots/03-effect-plasma.png)
+
+**Flow** — plasma, aurora, ripple, spiral, radial, snake. Continuous fields
+sampled at each LED's coordinates.
+
+![Matrix rain](docs/screenshots/04-effect-matrix.png)
+
+**Classic** — matrix rain falls as narrow vertical strands down the keyboard's
+real key grid rather than in blocks. Also scanner, theater, meteor, comet,
+chaser.
+
+![VU meter](docs/screenshots/05-effect-vu.png)
+
+**Fill** — the VU meter reads live desktop audio through WASAPI loopback and
+lights each fan bottom-up from its own frequency band, with rolling per-band
+gain so quiet passages still move. Also concentric, fill, stack, wipe, bounce,
+starburst.
+
+![Scatter effects](docs/screenshots/06-effect-scatter.png)
+
+**Scatter** — rain, twinkle, confetti, juggle, strobe, lightning. Per-LED
+random events instead of a moving field.
+
+![Glow effects](docs/screenshots/07-effect-glow.png)
+
+**Glow** — breathe, pulse, split, spectrum, fire.
+
+![System usage gradient](docs/screenshots/08-effect-usage.png)
+
+**System** — the resource gradient, and the one worth having on permanently.
+Each part of the case shows the load of the component it cools: CPU drives the
+radiator fans and pump, GPU drives the card's logo and the bottom intakes, RAM
+and overall load drive the front and rear, and the keyboard tracks your typing
+speed against a configurable words-per-minute cap. Green through yellow and
+orange to red, with thresholds set so ordinary load actually moves the colour
+instead of sitting green until the machine is pinned. Above, the case is idle
+and the RAM is part-used.
+
+### Palettes
+
+![Palettes](docs/screenshots/09-palettes.png)
+
+Built-in and custom palettes, remembered per effect. `Edit…` opens the colour
+editor; `<` and `>` step through them without leaving the effect running.
+
+### Effect layers
+
+![Effect layers](docs/screenshots/10-effect-layers.png)
+
+SignalRGB-style layers. Drag the box to move it, the corners to resize, the top
+handle to rotate — only the LEDs it covers get its effect, blended over
+whatever is underneath. Blend mode and opacity are per layer.
+
+![Layer effect picker](docs/screenshots/11-layer-effect-picker.png)
+
+Double-click a layer to choose its effect, from the same categorised grid.
+
+### Fans
+
+![Fans tab](docs/screenshots/12-fans-tab.png)
+
+Every channel's curve with the current operating point marked, what the daemon
+is **commanding** against what the fan is **actually doing** — the two diverging
+is how a fan being quietly reclaimed by the motherboard gets caught — plus the
+pump against its safety floor, live temperatures, the cooling profile toggle,
+and per-curve trim. The banner at the top shows both daemons' heartbeats and
+turns red the moment one stops.
 
 ---
 

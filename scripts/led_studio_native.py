@@ -29,6 +29,7 @@ Effects animate in the canvas immediately; the hardware is only written when
 so the daemon stands down, and releases on exit.
 """
 import ctypes
+import ctypes.wintypes          # not implied by `import ctypes`
 import json
 import math
 import os
@@ -61,9 +62,101 @@ try:
 except Exception:
     pass
 
-BASE = pathlib.Path(__file__).resolve().parent
+# Shared with the daemons, and stable when frozen - see app_paths.
+import app_paths
+from app_paths import DATA as BASE
 OVERRIDE = BASE / "manual_override.flag"
 STATE = BASE / "led_studio_state.json"
+
+# Frozen, the editor and the player are the same executable told apart by a
+# flag, so the player is found by exe name rather than by script name.
+PLAYER_EXE_NAME = os.path.basename(sys.executable).lower() if app_paths.FROZEN \
+    else "ledstudio.exe"
+
+# Lets led_player reuse THIS module object when the frozen exe dispatches to
+# it. Without the marker `from led_studio_native import ...` loads a second
+# copy of this whole module - Tk, PIL, the renderer, the widgets - into a
+# process that only needs the hardware thread.
+_LED_STUDIO_MAIN = True
+
+
+def log_start(what):
+    """One line per launch, so a start that goes nowhere leaves a trace.
+
+    Kept to the last 200 lines: this is a breadcrumb trail, not a log the user
+    has to manage.
+    """
+    try:
+        p = BASE / "led_studio_start.log"
+        line = (f"{time.strftime('%Y-%m-%d %H:%M:%S')}  pid={os.getpid():<6} "
+                f"frozen={int(app_paths.FROZEN)}  {what}\n")
+        old = p.read_text(encoding="utf-8").splitlines(True)[-199:] \
+            if p.exists() else []
+        p.write_text("".join(old) + line, encoding="utf-8")
+    except Exception:
+        pass
+
+
+def focus_existing():
+    """Bring the editor that is already running to the front.
+
+    Called when this process loses the single-instance race. Matched on the
+    window title AND on the pid not being ours, because the title is the only
+    thing shared between a frozen exe and a pythonw script - the two ways this
+    app can be running - and a window we own is not the one we are looking for.
+
+    Best effort throughout: failing to raise a window is a cosmetic
+    disappointment, whereas a second editor is a real problem, so this must
+    never turn into a reason to keep running.
+    """
+    try:
+        user32 = ctypes.windll.user32
+        me = os.getpid()
+        found = []
+
+        def visit(hwnd, _):
+            try:
+                if not user32.IsWindowVisible(hwnd):
+                    return True
+                pid = ctypes.wintypes.DWORD()
+                user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                if pid.value == me:
+                    return True
+                n = user32.GetWindowTextLengthW(hwnd)
+                if not n:
+                    return True
+                buf = ctypes.create_unicode_buffer(n + 1)
+                user32.GetWindowTextW(hwnd, buf, n + 1)
+                if buf.value == "LED Studio":
+                    found.append(hwnd)
+                    return False
+            except Exception:
+                pass
+            return True
+
+        proto = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.wintypes.HWND,
+                                   ctypes.wintypes.LPARAM)
+        user32.EnumWindows(proto(visit), 0)
+        if found:
+            user32.ShowWindow(found[0], 9)          # SW_RESTORE
+            user32.SetForegroundWindow(found[0])
+    except Exception:
+        pass
+
+
+def icon_path():
+    """The window icon, wherever this happens to be running from.
+
+    Frozen it is inside the bundle, so the exe carries its own icon even if it
+    is copied somewhere with no scripts folder beside it. As a script it is at
+    the top of the project. Callers still guard the iconbitmap call: the icon
+    is cosmetic and must never stop the app starting.
+    """
+    for cand in (app_paths.bundle_dir() / "led_studio.ico",
+                 BASE.parent / "led_studio.ico"):
+        if cand.exists():
+            return cand
+    return BASE.parent / "led_studio.ico"
 AUTO_CONTROL = True      # take the hardware on launch, release it on close
 FLAG_BEAT_MS = 20000     # refresh the override flag this often while holding
 HOST, PORT = "127.0.0.1", 6742
@@ -314,7 +407,7 @@ class App:
         self.root = root
         root.title("LED Studio")
         root.configure(bg=BG)
-        ico = BASE.parent / "led_studio.ico"
+        ico = icon_path()
         try:
             # default=True also applies it to future toplevels
             root.iconbitmap(default=str(ico))
@@ -1056,7 +1149,7 @@ class App:
         top.configure(bg=PANEL)
         top.transient(self.root)
         try:
-            top.iconbitmap(str(BASE.parent / "led_studio.ico"))
+            top.iconbitmap(str(icon_path()))
         except Exception:
             pass
 
@@ -1410,10 +1503,25 @@ class App:
         try:
             import subprocess
             exe = sys.executable
-            if exe.lower().endswith("python.exe"):
-                exe = exe[:-len("python.exe")] + "pythonw.exe"
+            if app_paths.FROZEN:
+                # Frozen, sys.executable IS this app, so re-launch ourselves
+                # with a flag instead of hunting for a python interpreter and
+                # a .py file that are not there any more.
+                argv = [exe, "--player"]
+            else:
+                if exe.lower().endswith("python.exe"):
+                    exe = exe[:-len("python.exe")] + "pythonw.exe"
+                # An ABSOLUTE path from this file, not "led_player.py"
+                # relative to the data directory. Those are the same folder
+                # today, but they are two different ideas - one is where the
+                # code lives, the other is where the settings live - and the
+                # moment they diverge the relative form silently launches
+                # nothing at all.
+                argv = [exe, str(pathlib.Path(__file__).resolve()
+                                 .with_name("led_player.py"))]
             subprocess.Popen(
-                [exe, "led_player.py"], cwd=str(BASE),
+                argv, cwd=str(pathlib.Path(argv[-1]).parent
+                              if not app_paths.FROZEN else BASE),
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         except Exception as exc:
             self.say(f"could not start the player: {type(exc).__name__}")
@@ -1430,19 +1538,30 @@ class App:
             try:
                 if proc.info["pid"] == me:
                     continue
-                # Match a PYTHON process with led_player.py as an actual
-                # argument. Searching the joined command line for the
-                # substring matched anything that merely mentioned the name -
-                # an editor with the file open, a grep, or the very shell that
-                # launched this - and terminated it. Killing a bystander
-                # because its command line contains a filename is not a
-                # cleanup, it is a hazard.
-                if not (proc.info.get("name") or "").lower().startswith(
-                        "python"):
-                    continue
+                # Match on an actual ARGUMENT, never on a substring of the
+                # joined command line. The substring form matched anything
+                # that merely mentioned the name - an editor with the file
+                # open, a grep, or the very shell that launched this - and
+                # terminated it. Killing a bystander because its command line
+                # contains a filename is not a cleanup, it is a hazard.
+                #
+                # There are two shapes to match, because there are two ways
+                # the player can have been started:
+                #   script : pythonw.exe ... led_player.py
+                #   frozen : LEDStudio.exe --player
+                # Matching only the first left the frozen player running while
+                # the editor took the LEDs back - two processes writing the
+                # same devices, which is the exact failure this guards.
+                name = (proc.info.get("name") or "").lower()
                 argv = proc.info.get("cmdline") or []
-                if any(os.path.basename(a).lower() == "led_player.py"
-                       for a in argv):
+                if name.startswith("python"):
+                    hit = any(os.path.basename(a).lower() == "led_player.py"
+                              for a in argv)
+                elif name == PLAYER_EXE_NAME:
+                    hit = "--player" in argv
+                else:
+                    continue
+                if hit:
                     proc.terminate()
             except Exception:
                 continue
@@ -1858,7 +1977,55 @@ class App:
         self._destroy_id = self.root.after(300, self.root.destroy)
 
 
-if __name__ == "__main__":
+def main():
+    # Frozen, there is only one executable, so it carries both entry points.
+    # The editor hands its animation to the player by re-launching itself with
+    # this flag rather than looking for a python interpreter that a standalone
+    # build does not have.
+    if "--player" in sys.argv:
+        import led_player
+        return led_player.main()
+
+    # One editor, always. There is a shortcut in the Startup folder and one on
+    # the desktop, both pointing here, so "the user clicks the icon while the
+    # logon copy is still coming up" is the ordinary case, not a corner. Two
+    # editors would both claim the override flag, both drive the same LEDs and
+    # both write led_studio_state.json - the last one to close winning. The
+    # daemons have had this guard since two of them were caught fighting over
+    # the radiator header; the editor never did.
+    import single_instance
+    if not single_instance.claim("LEDStudio"):
+        # Silently exiting looks like a broken icon. Raise the window that is
+        # already open instead, which is what the click meant anyway.
+        log_start("another instance holds the lock - focusing it")
+        focus_existing()
+        return 0
+
+    log_start("starting")
     root = tk.Tk()
     App(root)
     root.mainloop()
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except SystemExit:
+        raise
+    except BaseException:
+        # A windowed build has no console, so an unhandled exception here is a
+        # window that never appears and an exit code nobody sees. That is not
+        # debuggable from the outside - it already cost an afternoon. Write the
+        # traceback where the rest of the state lives, then re-raise so the
+        # behaviour is otherwise unchanged.
+        import traceback
+        try:
+            with open(BASE / "led_studio_crash.log", "a",
+                      encoding="utf-8") as fh:
+                fh.write(f"\n===== {time.strftime('%Y-%m-%d %H:%M:%S')} "
+                         f"frozen={app_paths.FROZEN} argv={sys.argv}\n")
+                traceback.print_exc(file=fh)
+        except Exception:
+            pass
+        raise

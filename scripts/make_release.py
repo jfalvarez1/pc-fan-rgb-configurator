@@ -25,6 +25,7 @@ import zipfile
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 DIST = ROOT / "dist"
+EXE = ROOT / "LEDStudio" / "LEDStudio.exe"
 
 # Must exist in the bundle or the build fails.
 REQUIRED = [
@@ -34,6 +35,9 @@ REQUIRED = [
     "USER_GUIDE.md",
     "TEST_PLAN.md",
     "scripts/led_studio_native.py",
+    "scripts/app_paths.py",
+    "scripts/build_exe.py",
+    "scripts/led_player.py",
     "scripts/case_layout.py",
     "scripts/rgb_effects.py",
     "scripts/fx_layers.py",
@@ -67,12 +71,24 @@ def build(version):
     if out.exists():
         out.unlink()
 
+    exe_files = []
+    if EXE.exists():
+        # The built app is NOT git-tracked - it is an artifact, and tracking a
+        # 7 MB binary that changes on every build is how a source repo turns
+        # into a download folder. It still has to ship, because "standalone
+        # executable" that arrives as a zip of .py files is not one. So it is
+        # added from disk, explicitly, after the tracked files.
+        exe_files = sorted(p for p in EXE.parent.rglob("*") if p.is_file())
+
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
         for rel in files:
             src = ROOT / rel
             if not src.is_file():
                 continue                    # deleted but still in the index
             z.write(src, f"led-studio-{version}/{rel}")
+        for src in exe_files:
+            z.write(src, f"led-studio-{version}/"
+                         f"{src.relative_to(ROOT).as_posix()}")
 
     # verify the archive rather than trusting that the writes landed
     with zipfile.ZipFile(out) as z:
@@ -93,8 +109,21 @@ def build(version):
         return None
     count = int.from_bytes(ico[4:6], "little")
 
+    # A bundle without the exe is a source release. That is allowed - the
+    # scripts run on their own - but say so plainly rather than letting
+    # someone discover it after downloading.
+    with zipfile.ZipFile(out) as z:
+        inside = {n.split("/", 1)[1] for n in z.namelist() if "/" in n}
+    if exe_files and "LEDStudio/LEDStudio.exe" not in inside:
+        print("the exe was collected but is not in the archive")
+        return None
+
     sha = hashlib.sha256(out.read_bytes()).hexdigest()
     print(f"built {out.name}")
+    print(f"  app     : " + (f"LEDStudio.exe + {len(exe_files)-1} support "
+                             f"files ({sum(p.stat().st_size for p in exe_files)/1024/1024:.1f} MB)"
+                             if exe_files else
+                             "SOURCE ONLY - run build_exe.py first"))
     print(f"  files   : {len(files)}")
     print(f"  size    : {out.stat().st_size/1024:.0f} KB")
     print(f"  icon    : valid ICO, {count} resolutions, "

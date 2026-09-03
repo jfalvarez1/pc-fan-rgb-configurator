@@ -9,7 +9,10 @@
 *.log
 *.pyc
 FanControl/
+LEDStudio/
 OpenRGB/
+_build/
+_dist/
 __pycache__/
 _downloads/
 _retired/

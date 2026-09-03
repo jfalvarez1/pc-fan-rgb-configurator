@@ -24,7 +24,8 @@ import statistics as st
 import sys
 import time
 
-BASE = pathlib.Path(__file__).resolve().parent
+# Shared with the daemons, and stable when frozen - see app_paths.
+from app_paths import DATA as BASE
 sys.path.insert(0, str(BASE))
 
 import fan_tuning                        # noqa: E402

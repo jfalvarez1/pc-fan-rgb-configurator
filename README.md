@@ -129,6 +129,12 @@ would still need Python, because SuperIO access requires a signed ring0
 driver (LibreHardwareMonitor's). Rewriting the easy 60 % would leave two
 runtimes instead of one. MSVC builds fine here if that ever changes.
 
+An `.exe` did not require it. `python scripts/build_exe.py` produces
+`LEDStudio\LEDStudio.exe`, a normal 7 MB PE binary with the icon compiled in
+as a resource: Windows gives it its own taskbar identity, it can be pinned,
+and no `python.exe` appears in its process tree. The language a program is
+written in and the format it ships in are separate questions.
+
 ---
 
 ## Confirmed hardware map

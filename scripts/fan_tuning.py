@@ -14,7 +14,9 @@ with no daemon restart.
 import json
 import pathlib
 
-TRIM_FILE = pathlib.Path(__file__).resolve().parent / "fan_tuning.json"
+from app_paths import DATA
+
+TRIM_FILE = DATA / "fan_tuning.json"
 TRIM_LIMIT = 15.0          # duty points, either direction
 TRIM_KEYS = ("fan1", "fan2", "fan3", "rad")
 

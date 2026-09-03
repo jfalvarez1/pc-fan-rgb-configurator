@@ -28,7 +28,8 @@ import math
 import pathlib
 import time
 
-BASE = pathlib.Path(__file__).resolve().parent
+# Shared with the daemons, and stable when frozen - see app_paths.
+from app_paths import DATA as BASE
 
 BG      = "#0d0f14"
 CARD    = "#151922"

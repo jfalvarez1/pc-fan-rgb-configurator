@@ -31,7 +31,19 @@ import fx_layers                                    # noqa: E402
 import rgb_effects as fx                            # noqa: E402
 import single_instance                              # noqa: E402
 import usage_levels                                 # noqa: E402
-from led_studio_native import Hardware, OVERRIDE, STATE   # noqa: E402
+
+# Frozen there is one executable, so the editor starts the player as
+# `LEDStudio.exe --player` and led_studio_native is already loaded - as
+# __main__. Importing it by name there would build a SECOND copy of the whole
+# editor module, pulling Tk, PIL, the renderer and the widgets into a process
+# that only wants the hardware thread and two paths. Reuse the live one when
+# it is the module that dispatched to us; fall back to a plain import when
+# this file is run directly with pythonw.
+_main = sys.modules.get("__main__")
+if getattr(_main, "_LED_STUDIO_MAIN", False):
+    Hardware, OVERRIDE, STATE = _main.Hardware, _main.OVERRIDE, _main.STATE
+else:
+    from led_studio_native import Hardware, OVERRIDE, STATE   # noqa: E402
 
 FPS = 20.0                  # the hardware write rate; no point going faster
 

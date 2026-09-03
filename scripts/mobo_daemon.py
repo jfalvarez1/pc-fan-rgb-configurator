@@ -34,7 +34,10 @@ import sys
 import time
 
 FANCONTROL = r"C:\HardwareControl\FanControl"
-BASE = pathlib.Path(__file__).resolve().parent
+# Not __file__: the LED Studio exe imports this module for its Fans tab, and
+# there __file__ points inside the bundle's _internal folder. The daemon would
+# then read a pump_config.json that is not the one it was tuned with, silently.
+from app_paths import DATA as BASE          # noqa: E402
 SENSORS = BASE / "sensors.json"
 
 PUMP_HEADER = "Fan #2"

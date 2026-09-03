@@ -20,8 +20,70 @@ import pathlib
 import sys
 import traceback
 
+# ---------------------------------------------------------------------------
+# Run against a COPY of the live data, never the live files themselves.
+#
+# The editor tests construct real App objects, and those load and save
+# led_studio_state.json. Snapshotting the file around a section does not make
+# that safe: an app built while the file briefly holds a test value loads it
+# and writes it back after the restore, which silently turned the user's
+# keep-on-exit off twice. app_paths honours LED_STUDIO_DATA, so pointing it at
+# a scratch copy before any module is imported keeps the real settings
+# untouched no matter what a test does.
+import os as _os
+import shutil as _shutil
+import tempfile as _tempfile
+
+_LIVE = pathlib.Path(__file__).resolve().parent
+if not _os.environ.get("LED_STUDIO_KEEP_LIVE"):
+    _SCRATCH = pathlib.Path(_tempfile.mkdtemp(prefix="ledstudio-selftest-"))
+    for _name in ("pump_config.json", "fan_tuning.json", "rgb_zone_sizes.json",
+                  "led_studio_state.json", "sensors.json", "fan_state.json",
+                  "rgb_labels.json"):
+        _src = _LIVE / _name
+        if _src.exists():
+            _shutil.copy2(_src, _SCRATCH / _name)
+    _os.environ["LED_STUDIO_DATA"] = str(_SCRATCH)
+
+# Fingerprint the live files BEFORE anything imports, and check them again at
+# the end. Isolation is only as good as the weakest path in the suite, and the
+# way this went wrong twice was a single test still naming the live folder
+# while everything around it used the copy. A closing assertion catches the
+# next one the same day it is written, instead of when the user notices a
+# setting has turned itself off.
+import hashlib as _hashlib
+
+# SETTINGS only. sensors.json and fan_state.json are deliberately absent: the
+# daemons rewrite them every few seconds, so they change during any run long
+# enough to be worth doing, and a check that always fails is a check everyone
+# learns to ignore.
+_WATCHED = ("led_studio_state.json", "fan_tuning.json", "pump_config.json",
+            "rgb_zone_sizes.json", "rgb_labels.json")
+
+
+def _fingerprint():
+    out = {}
+    for _n in _WATCHED:
+        _p = _LIVE / _n
+        try:
+            out[_n] = _hashlib.sha256(_p.read_bytes()).hexdigest()
+        except OSError:
+            out[_n] = None          # absent is a state worth noticing too
+    return out
+
+
+_BEFORE = _fingerprint()
+
 BASE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(BASE))
+
+# BASE is where the CODE lives; DATA is where the STATE lives. They are the
+# same folder in normal use, which is exactly why mixing them up went
+# unnoticed: a test corrupted the live fan_tuning.json to check the fallback,
+# while fan_tuning itself read the scratch copy - so the assertion failed AND
+# the user's real file was the one being scribbled on.
+import app_paths                                    # noqa: E402
+DATA = app_paths.DATA
 
 PASS, FAIL = [], []
 _section = "?"
@@ -64,7 +126,7 @@ class Restore:
     """Snapshot files a test must write, and put them back afterwards."""
 
     def __init__(self, *names):
-        self.paths = [BASE / n for n in names]
+        self.paths = [DATA / n for n in names]
         self.saved = {}
 
     def __enter__(self):
@@ -99,7 +161,8 @@ def test_limits():
         chk(f"pump {raw!r} clamps into [{lo:.0f},{hi:.0f}]", lo <= got <= hi,
             f"-> {got:.1f}")
     chk("pump floor is above the measured cavitation end", md.PUMP_MIN_SAFE >= 40)
-    cfg = json.loads((BASE / "pump_config.json").read_text())
+    import app_paths
+    cfg = json.loads((app_paths.DATA / "pump_config.json").read_text())
     duties = [e["duty"] for e in cfg.get("map", [])]
     chk("every offered pump duty is at or above the floor",
         all(d >= md.PUMP_MIN_SAFE for d in duties), f"{duties}")
@@ -125,7 +188,7 @@ def test_limits():
         chk("garbage trim values do not crash and do not exceed the limit",
             all(abs(v) <= fan_tuning.TRIM_LIMIT or v != v
                 for v in got.values()), str(got))
-        (BASE / "fan_tuning.json").write_text("{ not json")
+        (DATA / "fan_tuning.json").write_text("{ not json")
         chk("corrupt trim file falls back to zero",
             all(v == 0.0 for v in fan_tuning.load_trims().values()))
         chk("pump is not trimmable at all",
@@ -225,7 +288,7 @@ def test_override():
     # failure that vanished on re-run, which is worse than no test at all -
     # it teaches you to re-run until green.
     real = trl.MANUAL_FLAG
-    flag = BASE / "selftest_override.flag"
+    flag = DATA / "selftest_override.flag"
     trl.MANUAL_FLAG = str(flag)
     try:
         _run_override_checks(trl, flag)
@@ -612,7 +675,11 @@ def test_app():
     import rgb_effects as fx
 
     with Restore("led_studio_state.json", "manual_override.flag"):
-        p = BASE / "led_studio_state.json"
+        # DATA, not BASE. This test wants a first-run editor, so it removes
+        # the state file - and while it named the live one, it deleted the
+        # user's settings and then loaded the scratch copy anyway, so the
+        # "layer restored" assertion counted a layer the test never made.
+        p = DATA / "led_studio_state.json"
         if p.exists():
             p.unlink()
         root = tk.Tk()
@@ -936,7 +1003,97 @@ def test_layer_geometry():
         "ALL PASS" in out.stdout and n_bad == 0, f"{n_bad} failures")
 
 
+# ----------------------------------------------------------------- paths ---
+
+_FROZEN_CHILD = '''
+import json, pathlib, sys
+sys.frozen = True
+sys.executable = r"{exe}"
+sys._MEIPASS = r"{meipass}"
+sys.path.insert(0, r"{live}")
+import app_paths, fan_tuning, thermal_rgb_loop as trl, mobo_daemon as md
+import led_studio_native as ls, fan_panel
+print("@@" + json.dumps({{
+    "DATA": str(app_paths.DATA), "FROZEN": app_paths.FROZEN,
+    "fan_tuning.TRIM_FILE": str(fan_tuning.TRIM_FILE),
+    "trl._BASE": trl._BASE, "trl.MANUAL_FLAG": trl.MANUAL_FLAG,
+    "trl.CLAUDE_FLAG_DIR": trl.CLAUDE_FLAG_DIR,
+    "md.BASE": str(md.BASE), "md.SENSORS": str(md.SENSORS),
+    "ls.BASE": str(ls.BASE), "ls.OVERRIDE": str(ls.OVERRIDE),
+    "ls.STATE": str(ls.STATE), "ls.icon": str(ls.icon_path()),
+    "ls.PLAYER_EXE_NAME": ls.PLAYER_EXE_NAME,
+    "fan_panel.BASE": str(fan_panel.BASE),
+}}))
+'''
+
+
+def test_paths():
+    """Frozen, every module must still find the ONE shared data directory.
+
+    This failure mode is silent, which is why it gets its own section. A
+    module that locates its JSON with __file__ keeps working perfectly after a
+    PyInstaller build - it just reads a different, stale copy from inside the
+    bundle. Nothing raises. The editor writes settings the daemons never see,
+    and the two disagree about the hardware until someone notices the fans.
+
+    So: fake a frozen interpreter in a child process, import the whole graph,
+    and insist every path constant lands in the live scripts folder.
+    """
+    section("frozen paths")
+    import subprocess
+    import tempfile
+
+    live = pathlib.Path(r"C:\\HardwareControl\\scripts")
+    if not (live / "app_paths.py").exists():
+        chk("live scripts folder present", False, str(live))
+        return
+    src = _FROZEN_CHILD.format(
+        exe=r"C:\\HardwareControl\\LEDStudio\\LEDStudio.exe",
+        meipass=r"C:\\HardwareControl\\LEDStudio\\_internal",
+        live=str(live))
+    tmp = pathlib.Path(tempfile.mkdtemp()) / "frozen_probe.py"
+    tmp.write_text(src, encoding="utf-8")
+    env = dict(os.environ)
+    env.pop("LED_STUDIO_DATA", None)      # the child must resolve for real
+    r = subprocess.run([sys.executable, str(tmp)], capture_output=True,
+                       text=True, env=env)
+    line = next((l for l in r.stdout.splitlines() if l.startswith("@@")), None)
+    if not chk("the whole module graph imports under a frozen interpreter",
+               bool(line), "" if line else (r.stderr or r.stdout)[-400:]):
+        return
+    got = json.loads(line[2:])
+
+    chk("app_paths reports frozen", got["FROZEN"] is True)
+    chk("DATA is the live scripts folder",
+        pathlib.Path(got["DATA"]) == live, got["DATA"])
+    for key in ("fan_tuning.TRIM_FILE", "trl.MANUAL_FLAG",
+                "trl.CLAUDE_FLAG_DIR", "md.SENSORS", "ls.OVERRIDE",
+                "ls.STATE"):
+        chk(f"{key} lives in the shared data dir",
+            pathlib.Path(got[key]).parent == live, got[key])
+    for key in ("trl._BASE", "md.BASE", "ls.BASE", "fan_panel.BASE"):
+        chk(f"{key} is the shared data dir",
+            pathlib.Path(got[key]) == live, got[key])
+
+    # Nothing writable may resolve into the bundle, which is deleted and
+    # rebuilt. The icon is the deliberate exception: read-only, shipped inside
+    # the exe so a copied executable keeps its identity.
+    for key, val in got.items():
+        if isinstance(val, str) and key != "ls.icon":
+            chk(f"{key} is not inside the bundle",
+                "_internal" not in val.lower(), val)
+    chk("the icon is bundled, so a copied exe keeps it",
+        "_internal" in got["ls.icon"].lower(), got["ls.icon"])
+    chk("the frozen player is matched by exe name, not by python",
+        got["ls.PLAYER_EXE_NAME"] == "ledstudio.exe",
+        got["ls.PLAYER_EXE_NAME"])
+    chk("editor and daemon share one override flag",
+        got["ls.OVERRIDE"].lower() == got["trl.MANUAL_FLAG"].lower(),
+        f'{got["ls.OVERRIDE"]} vs {got["trl.MANUAL_FLAG"]}')
+
+
 SECTIONS = {
+    "paths": test_paths,
     "limits": test_limits,
     "override": test_override,
     "instance": test_single_instance,
@@ -967,6 +1124,17 @@ def main():
         except Exception:
             FAIL.append((name, "section raised", traceback.format_exc()))
             print(f"  FAIL {name} raised:\n{traceback.format_exc()}")
+    # The suite must leave the user's live settings exactly as it found them.
+    if not os.environ.get("LED_STUDIO_KEEP_LIVE"):
+        section("live data untouched")
+        after = _fingerprint()
+        for name in _WATCHED:
+            was, now = _BEFORE[name], after[name]
+            chk(f"{name} was not modified", was == now,
+                "MISSING NOW" if now is None and was else
+                "CREATED" if was is None and now else
+                "CONTENT CHANGED" if was != now else "")
+
     print("\n" + "=" * 64)
     print(f"{len(PASS)} passed, {len(FAIL)} failed")
     if FAIL:

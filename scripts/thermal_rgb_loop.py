@@ -202,7 +202,12 @@ WAVE_SPEED_MAX_MULT = 2.5
 
 # Claude Code "thinking" glow. Claude Code hooks touch/remove CLAUDE_FLAG;
 # while it exists, an orange bloom overrides whatever else is showing.
-_BASE = os.path.dirname(os.path.abspath(__file__))
+# Not __file__: the LED Studio exe imports this module for its Fans tab, and
+# there __file__ is inside the bundle. The override flag in particular has to
+# be the one file every process agrees on, or the editor takes the LEDs and
+# the daemon never notices.
+from app_paths import DATA as _DATA          # noqa: E402
+_BASE = str(_DATA)
 # One flag PER SESSION: with several Claudes open, a single shared flag meant
 # whichever finished first switched the glow off while the others worked.
 CLAUDE_FLAG_DIR = os.path.join(_BASE, "claude_flags")
@@ -866,7 +871,7 @@ def main():
 
     if args.log:
         import pathlib
-        logfile = pathlib.Path(__file__).with_name("thermal_loop.log")
+        logfile = pathlib.Path(_BASE) / "thermal_loop.log"
 
         class _Tee:
             """Mirror stdout to a file; pythonw has no console to print to."""
@@ -905,7 +910,7 @@ def main():
     csv_fh = None
     if args.csv:
         import csv as _csv, pathlib as _pl, time as _t
-        _p = _pl.Path(__file__).with_name("thermal_log.csv")
+        _p = _pl.Path(_BASE) / "thermal_log.csv"
         new = not _p.exists()
         csv_fh = open(_p, "a", newline="", encoding="utf-8")
         csv_w = _csv.writer(csv_fh)
